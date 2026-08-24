@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.0.0-live
+-- Version 3.0.1-live
 --
 -- Updated from Exchange Walker 2.0 for the Federation 2 public live server.
 -- This add-on deliberately reuses the live-tested F2CE Tools planet-owner
@@ -26,7 +26,7 @@
 ExchangeWalkerLive = ExchangeWalkerLive or {}
 local EW = ExchangeWalkerLive
 
-EW.VERSION = "3.0.0-live"
+EW.VERSION = "3.0.1-live"
 EW.enabled = EW.enabled == true
 EW.busy = false
 EW.applying = false
@@ -184,14 +184,83 @@ local function sorted_exchange_rows(exchange_data)
   return rows
 end
 
+-- A preview must be based on a complete, internally valid capture. Production
+-- rows are indexed by normalized commodity name so harmless case differences
+-- do not look like missing data. Duplicate, absent, or malformed rows reject
+-- the entire preview; they are never converted into economic zeroes.
+local function validate_complete_capture(exchange_data, production_data)
+  if type(exchange_data) ~= "table" or type(production_data) ~= "table" then
+    return nil, "Exchange or production capture is not a valid table."
+  end
+
+  local production_by_name = {}
+
+  for name, production in pairs(production_data) do
+    if type(name) ~= "string" or name == "" or type(production) ~= "table" then
+      return nil, "Production capture contains an invalid commodity row."
+    end
+
+    local key = normalized(name)
+    if production_by_name[key] ~= nil then
+      return nil, string.format(
+        "Production capture contains duplicate rows for %s.", name)
+    end
+    production_by_name[key] = production
+  end
+
+  local exchange_names = {}
+  for _, exchange in ipairs(exchange_data or {}) do
+    if type(exchange) ~= "table" or type(exchange.name) ~= "string"
+        or exchange.name == "" then
+      return nil, "Exchange capture contains an invalid commodity row."
+    end
+
+    local key = normalized(exchange.name)
+    if exchange_names[key] then
+      return nil, string.format(
+        "Exchange capture contains duplicate rows for %s.", exchange.name)
+    end
+    exchange_names[key] = true
+
+    local production = production_by_name[key]
+    if production == nil then
+      return nil, string.format(
+        "Production capture is incomplete: missing %s.", exchange.name)
+    end
+
+    local produced = tonumber(production.production)
+    local consumed = tonumber(production.consumption)
+    if produced == nil or consumed == nil or produced ~= produced
+        or consumed ~= consumed or produced == math.huge
+        or consumed == math.huge or produced < 0 or consumed < 0 then
+      return nil, string.format(
+        "Production capture is invalid for %s.", exchange.name)
+    end
+  end
+
+  return production_by_name, nil
+end
+
 local function make_plan(exchange_data, production_data)
   local actions = {}
   local rows = {}
+  local production_by_name, capture_error =
+    validate_complete_capture(exchange_data, production_data)
+  if production_by_name == nil then
+    return nil, capture_error
+  end
 
   for _, exchange in ipairs(sorted_exchange_rows(exchange_data)) do
-    local production = production_data[exchange.name] or {}
-    local produced = tonumber(production.production) or 0
-    local consumed = tonumber(production.consumption) or 0
+    -- Version 3.0.0 historical fallback (disabled): missing or malformed rows
+    -- became zero production and zero consumption, which could clear limits.
+    -- local production = production_data[exchange.name] or {}
+    -- local produced = tonumber(production.production) or 0
+    -- local consumed = tonumber(production.consumption) or 0
+
+    -- Version 3.0.1: validation above guarantees a complete numeric row.
+    local production = production_by_name[normalized(exchange.name)]
+    local produced = tonumber(production.production)
+    local consumed = tonumber(production.consumption)
     local net = produced - consumed
     local current = tonumber(exchange.stock_current) or 0
     local old_min = tonumber(exchange.stock_min) or 0
@@ -246,7 +315,7 @@ local function make_plan(exchange_data, production_data)
     rows = rows,
     actions = actions,
     applied = false,
-  }
+  }, nil
 end
 
 local function display_plan(plan)
@@ -324,7 +393,13 @@ function fetch_and_process_data()
           return
         end
 
-        EW.plan = make_plan(exchange_data, production_data)
+        local plan, capture_error = make_plan(exchange_data, production_data)
+        if plan == nil then
+          preview_failed(capture_error .. " No plan was created; nothing can be applied.")
+          return
+        end
+
+        EW.plan = plan
         display_plan(EW.plan)
       end)
 

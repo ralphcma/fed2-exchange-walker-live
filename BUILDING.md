@@ -18,7 +18,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-package.ps1
 The resulting archive is written to:
 
 ```text
-dist/exchange-walker-live-3.0.0-live.mpackage
+dist/exchange-walker-live-3.0.1-live.mpackage
 ```
 
 The `.mpackage` format is a ZIP archive containing:

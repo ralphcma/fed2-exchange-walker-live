@@ -9,7 +9,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sourcePath = Join-Path $repositoryRoot 'src\exchange-walker-live.lua'
 $packageDirectory = Join-Path $repositoryRoot 'package'
 $distributionDirectory = Join-Path $repositoryRoot 'dist'
-$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.0.0-live.mpackage'
+$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.0.1-live.mpackage'
 $temporaryPath = Join-Path ([System.IO.Path]::GetTempPath()) ('exchange-walker-live-' + [guid]::NewGuid().ToString('N') + '.zip')
 
 New-Item -ItemType Directory -Path $distributionDirectory -Force | Out-Null

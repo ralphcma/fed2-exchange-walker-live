@@ -88,6 +88,28 @@ exchange_walker_on()
 assert(ExchangeWalkerLive.enabled == true, "walker must enable")
 assert(#sent == 0, "enabling must not send commands")
 
+local saved_alloys = production_rows.Alloys
+production_rows.Alloys = nil
+fetch_and_process_data()
+drain_timers()
+assert(#sent == 0, "incomplete preview must not send commands")
+assert(ExchangeWalkerLive.plan == nil,
+       "missing production row must reject the entire preview")
+exchange_walker_apply()
+drain_timers()
+assert(#sent == 0, "apply after an incomplete preview must send nothing")
+
+production_rows.Alloys = {production = "invalid", consumption = 5}
+fetch_and_process_data()
+drain_timers()
+assert(#sent == 0, "malformed preview must not send commands")
+assert(ExchangeWalkerLive.plan == nil,
+       "malformed production row must reject the entire preview")
+exchange_walker_apply()
+drain_timers()
+assert(#sent == 0, "apply after a malformed preview must send nothing")
+
+production_rows.Alloys = saved_alloys
 fetch_and_process_data()
 drain_timers()
 assert(#sent == 0, "preview must not send commands")

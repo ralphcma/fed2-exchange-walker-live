@@ -1,10 +1,10 @@
-# Exchange Walker Live 3.0
+# Exchange Walker Live 3.0.1
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
 
 An installable Mudlet package for controlled Federation 2 planet-exchange
 stockpile management. Download the current package from
-[`dist/exchange-walker-live-3.0.0-live.mpackage`](dist/exchange-walker-live-3.0.0-live.mpackage).
+[`dist/exchange-walker-live-3.0.1-live.mpackage`](dist/exchange-walker-live-3.0.1-live.mpackage).
 
 Exchange Walker Live is a Mudlet add-on for the Federation 2 public live
 server. It reads the current planet's exchange and production reports, displays
@@ -34,7 +34,7 @@ the `fed2ce` profile. Version 2.0 created temporary triggers that remain active
 until the profile session ends. Leaving those triggers active can cause
 duplicate captures or stockpile commands.
 
-Do not install version 3.0 while an old Exchange Walker operation is running.
+Do not install version 3.0.1 while an old Exchange Walker operation is running.
 
 ## Recommended persistent installation
 
@@ -44,7 +44,7 @@ Do not install version 3.0 while an old Exchange Walker operation is running.
 4. Select the downloaded package:
 
    ```text
-   exchange-walker-live-3.0.0-live.mpackage
+   exchange-walker-live-3.0.1-live.mpackage
    ```
 
 5. Confirm the package installation.
@@ -52,7 +52,7 @@ Do not install version 3.0 while an old Exchange Walker operation is running.
 7. Confirm that Mudlet displays a message similar to:
 
    ```text
-   [Exchange Walker] v3.0.0-live loaded for the public live server; default is OFF.
+   [Exchange Walker] v3.0.1-live loaded for the public live server; default is OFF.
    ```
 
 8. Confirm that the upper-right toggle reads:
@@ -284,7 +284,7 @@ The add-on remains fully operable without clicking the button.
 Package version:
 
 ```text
-3.0.0-live
+3.0.1-live
 ```
 
 The Lua source passes Lua 5.1 syntax validation. Offline tests verify that:
@@ -294,6 +294,8 @@ The Lua source passes Lua 5.1 syntax validation. Offline tests verify that:
 - explicit apply sends each planned setting once;
 - an applied plan cannot replay; and
 - OFF clears the plan and disables further actions.
+- incomplete or malformed production captures create no plan and cannot be
+  applied.
 
 No public live-server connection was used during development verification.
 
