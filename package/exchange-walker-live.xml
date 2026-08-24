@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-2.0-only -->
+<!-- Copyright (C) 2026 Exchange Walker Live contributors -->
+<!DOCTYPE MudletPackage>
+<MudletPackage version="1.001">
+  <ScriptPackage>
+    <Script isActive="yes" isFolder="no">
+      <name>Exchange Walker Live Loader</name>
+      <script>local path = getMudletHomeDir() .. "/exchange-walker-live/exchange-walker-live.lua"
+local ok, error_message = pcall(dofile, path)
+if not ok then
+  cecho(string.format("\n&lt;red&gt;[Exchange Walker]&lt;reset&gt; Unable to load %s: %s\n", path, tostring(error_message)))
+end</script>
+      <packageName/>
+      <eventHandlerList>
+      </eventHandlerList>
+    </Script>
+  </ScriptPackage>
+</MudletPackage>
