@@ -50,10 +50,14 @@ A nonpositive producer generates `set spread 6 <commodity>`.
 
 ## F2CE Muxlet display
 
-The package registers content ID `exchange_walker_live` and safely mounts a
-selectable **Stockpiles** tab in F2CE's verified top-left `LeftTop` pane beside
-the existing **Who** and **Exchange** tabs. It does not replace either built-in
-content module or change the workspace's default tab.
+The package registers content ID `exchange_walker_live` with F2CE's Muxlet
+Content Library. It deliberately does not add, move, activate, or replace tabs
+during load or preview. This avoids changing F2CE workspace composition and
+prevents interference with content such as Galaxy Navigator.
+
+Add **Exchange Walker** from the Content Library to a tab in the preferred
+pane, such as the top-left `LeftTop` pane. Muxlet persists that user-selected
+placement. An existing saved placement is reused after reload.
 
 The display contains ON/OFF, Preview, Apply, Cancel, and Clear controls plus
 narrow-pane cards combining `display exchange` and `display production`:
@@ -64,8 +68,9 @@ Alloys            net +15 | stock 500
   limits 100/900 -> 500/1500
 ```
 
-Use `ew display` to select the Stockpiles tab. If Muxlet is unavailable, the
-same preview is printed to the main console and all aliases continue to work.
+Use `ew display` to select an existing user-placed Stockpiles tab. It never
+creates a tab. If Muxlet is unavailable, the same preview is printed to the main
+console and all aliases continue to work.
 
 ## Commands
 
@@ -123,11 +128,12 @@ The 3.0.x global functions remain as compatibility wrappers, including
 
 1. Enable F2CE Tools 3.2.5 or newer in the Mudlet profile.
 2. Open Mudlet Package Manager.
-3. Install `exchange-walker-live-3.1.0-live.mpackage`.
+3. Install `exchange-walker-live-3.1.1-live.mpackage`.
 4. Confirm the load message reports OFF.
-5. Use `ew api` to confirm capture and Mux capabilities.
+5. In Muxlet Content Library, add **Exchange Walker** to the desired pane/tab.
+6. Use `ew api` to confirm capture and Mux capabilities.
 
-Do not run 3.0.x and 3.1.0 simultaneously.
+Do not run multiple Exchange Walker versions simultaneously.
 
 ## Upgrade
 
@@ -145,6 +151,8 @@ Do not run 3.0.x and 3.1.0 simultaneously.
 ## Known limitations
 
 - The package manages only the current planet and contains no route walker.
+- Mux placement is user-controlled through Content Library; the package will not
+  modify an F2CE workspace automatically.
 - F2CE's production capture completes after a rolling output-silence timeout;
   Exchange Walker compensates by requiring a complete matching commodity set.
 - F2CE's planet-owner capture service is global. The adapter refuses to reset a

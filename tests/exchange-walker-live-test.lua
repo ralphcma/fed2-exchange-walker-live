@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.1.0.
+-- Offline behavioral checks for Exchange Walker Live 3.1.1.
 -- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
@@ -101,7 +101,7 @@ local pane = {
 }
 function pane:addTab(name, _position)
   local target = {
-    id = "tab_" .. tostring(#self._tabs + 1), name = name,
+    id = "tab_" .. tostring(#self._tabs + 1), name = name, pane = self,
     content = {}, contentBg = new_widget(),
   }
   self._tabs[#self._tabs + 1] = target
@@ -135,12 +135,15 @@ local exchange_rows = {
     stock_max = 0, spread = 6, net = 0 },
   { name = "Gold", stock_current = 10000, stock_min = 100,
     stock_max = 900, spread = 20, net = 50 },
+  { name = "NanoFabrics", stock_current = -225, stock_min = 0,
+    stock_max = 800, spread = 20, net = -5 },
 }
 local production_rows = {
   Alloys = { production = 20, consumption = 5 },
   Meats = { production = 2, consumption = 3 },
   Clinics = { production = 4, consumption = 4 },
   Gold = { production = 60, consumption = 10 },
+  NanoFabrics = { production = 1, consumption = 6 },
 }
 
 f2t_po = { phase = "idle", callback = nil }
@@ -171,15 +174,21 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.1.0-live", "version must be 3.1.0-live")
+check(EW.VERSION == "3.1.1-live", "version must be 3.1.1-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
   "public API contract must be available")
 check(rawget(_G, "FedHaulerLive") == nil, "standalone runtime must not require FedHaulerLive")
 check(type(mux_content.exchange_walker_live) == "table", "Mux content must register")
-check(pane._tabs[3] and pane._tabs[3].name == "Stockpiles", "Stockpiles tab must mount")
-check(pane._activeTabId == "who", "installation must not replace the default F2CE tab")
+check(#pane._tabs == 2, "installation must not mutate the F2CE workspace")
+check(EW.ui.show() == false and #pane._tabs == 2,
+  "display request must not create a Mux tab behind the Content Library")
+local stockpile_tab = pane:addTab("Stockpiles")
+Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
+check(type(EW.ui.instances[stockpile_tab]) == "table",
+  "Content Library placement must build the Stockpiles display")
+check(pane._activeTabId == "who", "content placement must preserve the default F2CE tab")
 
 EW.preview()
 EW.apply()
@@ -208,18 +217,31 @@ run_next_timer()
 check(EW.plan == nil, "invalid exchange spread must reject the preview")
 exchange_rows[1].spread = saved_spread
 
+local saved_minimum = exchange_rows[1].stock_min
+exchange_rows[1].stock_min = -1
+EW.preview()
+run_next_timer()
+check(EW.plan == nil, "negative configured minimum must reject the preview")
+exchange_rows[1].stock_min = saved_minimum
+
 EW.preview()
 check(sent[#sent] == "display exchange", "preview must start with display exchange")
 run_next_timer()
 check(sent[#sent] == "display production", "preview must follow with display production")
-check(EW.plan ~= nil and #EW.plan.rows == 4, "complete capture must create a four-row plan")
-check(#EW.plan.actions == 9, "policy fixture must create nine exact changes")
+check(EW.plan ~= nil and #EW.plan.rows == 5, "complete capture must create a five-row plan")
+check(#EW.plan.actions == 11, "policy fixture must create eleven exact changes")
 check(EW.plan.rows[1].commodity == "Gold", "rows must sort by recomputed net production")
 check(EW.plan.rows[1].target_min == 10000 and EW.plan.rows[1].target_max == 20000,
   "stock at 10000 must target 10000/20000")
 check(EW.plan.rows[1].target_spread == 40, "positive producer must target 40 percent spread")
-check(EW.plan.rows[4].target_spread == 6, "negative producer must target 6 percent spread")
-check(pane._activeTabId == pane._tabs[3].id, "preview must reveal the Stockpiles tab")
+check(EW.plan.rows[5].commodity == "NanoFabrics" and EW.plan.rows[5].current == -225,
+  "negative current stock deficit must remain valid live data")
+check(EW.plan.rows[5].target_min == 0 and EW.plan.rows[5].target_max == 0,
+  "negative-stock deficit producer must target zero limits")
+check(EW.plan.rows[5].target_spread == 6, "negative producer must target 6 percent spread")
+check(pane._activeTabId == "who", "preview must preserve the active F2CE tab")
+EW.ui.show()
+check(pane._activeTabId == pane._tabs[3].id, "explicit display must reveal the Stockpiles tab")
 
 local action_start = #sent + 1
 check(EW.apply() == true and EW.applying == true, "explicit apply must start")
@@ -289,6 +311,9 @@ local active_trigger_count = 0
 for _, trigger in pairs(triggers) do if trigger.active then active_trigger_count = active_trigger_count + 1 end end
 check(active_trigger_count == 3, "reload must leave exactly three active confirmation triggers")
 check(#pane._tabs == 3, "reload must not duplicate the Stockpiles Mux tab")
+Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
+check(EW.ui.show() == true and pane._activeTabId == stockpile_tab.id,
+  "saved Content Library placement must remain usable after reload")
 check(EW.public.capabilities().capture.available == true, "API capability report must expose capture")
 
 print(string.format("RESULT %d passed, %d failed", passed, failed))

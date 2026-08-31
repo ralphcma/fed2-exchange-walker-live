@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.1-live — 2026-08-31
+
+- Fixed valid negative current-stock deficits being rejected as incomplete
+  exchange captures, including the reported NanoFabrics case.
+- Retained fail-closed validation for configured minimum/maximum limits and
+  added field-specific diagnostics with server range checks.
+- Replaced automatic Mux tab creation with registration-only Content Library
+  integration so Exchange Walker does not alter F2CE workspace composition or
+  disturb Galaxy Navigator content.
+- Preview now refreshes a placed Stockpiles display in the background without
+  activating it; `ew display` raises only an existing user-placed target.
+- Added regressions for negative current stock, invalid negative limits,
+  registration-only Mux integration, active-tab preservation, and reload.
+
 ## 3.1.0-live — 2026-08-31
 
 - Extended positive-producer reserve policy: once current stock reaches 10,000
