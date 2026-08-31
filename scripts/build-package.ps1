@@ -6,19 +6,24 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$sourcePath = Join-Path $repositoryRoot 'src\exchange-walker-live.lua'
 $packageDirectory = Join-Path $repositoryRoot 'package'
 $distributionDirectory = Join-Path $repositoryRoot 'dist'
-$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.0.1-live.mpackage'
+$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.1.2-live.mpackage'
 $temporaryPath = Join-Path ([System.IO.Path]::GetTempPath()) ('exchange-walker-live-' + [guid]::NewGuid().ToString('N') + '.zip')
+
+$sourcePaths = @(
+    (Join-Path $repositoryRoot 'src\f2ce-api.lua'),
+    (Join-Path $repositoryRoot 'src\exchange-walker-live.lua')
+)
 
 New-Item -ItemType Directory -Path $distributionDirectory -Force | Out-Null
 
 $archiveFiles = @(
     (Join-Path $packageDirectory 'config.lua'),
-    (Join-Path $packageDirectory 'exchange-walker-live.xml'),
-    $sourcePath,
+    (Join-Path $packageDirectory 'exchange-walker-live.xml')
+) + $sourcePaths + @(
     (Join-Path $repositoryRoot 'README.md'),
+    (Join-Path $repositoryRoot 'CHANGELOG.md'),
     (Join-Path $repositoryRoot 'LICENSE')
 )
 

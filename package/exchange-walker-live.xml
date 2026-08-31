@@ -6,10 +6,36 @@
   <ScriptPackage>
     <Script isActive="yes" isFolder="no">
       <name>Exchange Walker Live Loader</name>
-      <script>local path = getMudletHomeDir() .. "/exchange-walker-live/exchange-walker-live.lua"
-local ok, error_message = pcall(dofile, path)
-if not ok then
-  cecho(string.format("\n&lt;red&gt;[Exchange Walker]&lt;reset&gt; Unable to load %s: %s\n", path, tostring(error_message)))
+      <script>local home = getMudletHomeDir() .. "/exchange-walker-live/"
+local previous = rawget(_G, "ExchangeWalkerLive")
+if type(previous) == "table" then
+  if type(previous.shutdown) == "function" then
+    pcall(previous.shutdown)
+  else
+    for _, field in ipairs({ "transition_timer", "apply_timer", "confirmation_timer" }) do
+      if previous[field] and type(killTimer) == "function" then pcall(killTimer, previous[field]) end
+    end
+    for _, field in ipairs({ "min_confirmation_trigger", "max_confirmation_trigger", "spread_confirmation_trigger" }) do
+      if previous[field] and type(killTrigger) == "function" then pcall(killTrigger, previous[field]) end
+    end
+    if previous.alias and type(killAlias) == "function" then pcall(killAlias, previous.alias) end
+    if previous.button then
+      if type(previous.button.hide) == "function" then pcall(previous.button.hide, previous.button) end
+      if type(previous.button.delete) == "function" then pcall(previous.button.delete, previous.button) end
+    end
+  end
+end
+
+_G.ExchangeWalkerLive = {}
+for _, filename in ipairs({ "f2ce-api.lua", "exchange-walker-live.lua" }) do
+  local path = home .. filename
+  local ok, error_message = pcall(dofile, path)
+  if not ok then
+    cecho(string.format("\n&lt;red&gt;[Exchange Walker]&lt;reset&gt; Unable to load %s: %s\n",
+      path, tostring(error_message)))
+    if _G.ExchangeWalkerLive then _G.ExchangeWalkerLive.enabled = false end
+    break
+  end
 end</script>
       <packageName/>
       <eventHandlerList>
