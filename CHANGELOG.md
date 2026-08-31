@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.3-live — 2026-08-31
+
+- Fixed incomplete exchange plans caused by F2CE Tools 3.2.5 parsing only
+  commodities whose `Efficiency` and `Net` fields wrapped onto two lines.
+- Added an adapter-scoped exchange parser that accepts both the live one-line
+  and wrapped two-line layouts, then restores F2CE's original parser as soon
+  as Exchange Walker's capture completes or is cancelled.
+- Required the parsed exchange row count to match the server's commodity
+  summary count before a plan can exist.
+- Required exchange and production captures to contain identical normalized
+  commodity sets in both directions.
+- Added mixed-wrap, parser-restoration, summary-mismatch, and asymmetric-set
+  regressions.
+
 ## 3.1.2-live — 2026-08-31
 
 - Restored automatic visible Stockpiles-tab placement after 3.1.1 made the

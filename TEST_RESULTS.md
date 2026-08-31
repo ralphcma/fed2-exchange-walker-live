@@ -1,4 +1,4 @@
-# Exchange Walker Live 3.1.2 Test Results
+# Exchange Walker Live 3.1.3 Test Results
 
 Date: 2026-08-31
 
@@ -6,24 +6,24 @@ Date: 2026-08-31
 
 - Lua 5.1 syntax: `f2ce-api.lua`, `exchange-walker-live.lua`, and the offline
   test harness passed `luac5.1 -p`.
-- Offline source behavior: `RESULT 68 passed, 0 failed`.
+- Offline source behavior: `RESULT 74 passed, 0 failed`.
 - Git whitespace validation: passed.
 - Mudlet package XML parsed with root `MudletPackage`.
 
 ## Exact package gates
 
-Artifact: `dist/exchange-walker-live-3.1.2-live.mpackage`
+Artifact: `dist/exchange-walker-live-3.1.3-live.mpackage`
 
 SHA-256:
 
 ```text
-3A4A3A9D479172F4858C7C17226D7D58A267CD80D0344C2541857B3A72AE3D6D
+7B8A718C53BE5EF617F7100F1C091DC2F4DCAB1889924692E7F4EB7E6D0A2250
 ```
 
 - Required members: 7/7.
 - Unexpected members: 0.
 - Packaged Lua syntax: passed.
-- Exact-package offline behavior: `RESULT 68 passed, 0 failed`.
+- Exact-package offline behavior: `RESULT 74 passed, 0 failed`.
 - Packaged/source Lua hashes: 2/2 exact matches.
 - XML, absolute-path, identity-leak, credential-string, and localhost checks:
   passed.
@@ -33,6 +33,12 @@ SHA-256:
 - Default OFF and zero mutation while OFF.
 - F2CE dependency/version failure remains OFF.
 - Complete exchange and production capture requirements.
+- Mixed one-line and wrapped two-line exchange row parsing.
+- Scoped replacement and restoration of F2CE's exchange parser.
+- Exact parsed-row agreement with the server commodity summary.
+- Bidirectional equality of normalized exchange and production commodity sets.
+- Partial capture rejection with no plan and no mutation command.
+- Existing negative-stock deficit acceptance remains covered.
 - Strict stock and spread field validation, while accepting finite negative
   current-stock deficits as valid live exchange data.
 - Positive stock below and at the 10,000-ton policy boundary.

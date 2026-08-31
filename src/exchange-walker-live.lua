@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.1.2-live
+-- Version 3.1.3-live
 --
 -- Current-planet owner stockpile planner. Capture and workspace integration
 -- are delegated through f2ce-api.lua so future F2CE changes stay isolated.
@@ -20,7 +20,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.1.2-live"
+EW.VERSION = "3.1.3-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -305,6 +305,16 @@ local function validate_complete_capture(exchange_data, production_data)
   if type(exchange_data) ~= "table" or type(production_data) ~= "table" then
     return nil, "Exchange or production capture is not a valid table."
   end
+  local expected_count = finite_number(exchange_data._expected_count)
+  if expected_count == nil or expected_count < 1
+      or expected_count ~= math.floor(expected_count) then
+    return nil, "Exchange summary count is unavailable; capture completeness cannot be proven."
+  end
+  if #exchange_data ~= expected_count then
+    return nil, string.format(
+      "Exchange capture is incomplete: parsed %d of %d summary rows.",
+      #exchange_data, expected_count)
+  end
   local production_by_name = {}
   for name, production in pairs(production_data) do
     if type(name) ~= "string" or name == "" or type(production) ~= "table" then
@@ -319,7 +329,7 @@ local function validate_complete_capture(exchange_data, production_data)
     if produced == nil or consumed == nil or produced < 0 or consumed < 0 then
       return nil, string.format("Production capture is invalid for %s.", name)
     end
-    production_by_name[key] = { production = produced, consumption = consumed }
+    production_by_name[key] = { name = name, production = produced, consumption = consumed }
   end
   local exchange_names = {}
   for _, exchange in ipairs(exchange_data) do
@@ -363,6 +373,11 @@ local function validate_complete_capture(exchange_data, production_data)
     end
     if spread == nil or spread < 6 or spread > 40 then
       return nil, string.format("Exchange spread capture is invalid for %s.", exchange.name)
+    end
+  end
+  for key, production in pairs(production_by_name) do
+    if not exchange_names[key] then
+      return nil, string.format("Exchange capture is incomplete: missing %s.", production.name)
     end
   end
   return production_by_name, nil

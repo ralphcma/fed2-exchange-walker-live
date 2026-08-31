@@ -18,6 +18,10 @@ fallback if the workspace is not running.
 - `ew preview` sends `display exchange` and `display production` through F2CE
   Tools; it sends no mutation command.
 - Incomplete or malformed exchange or production captures create no plan.
+- Exchange rows may use either the live one-line layout or a wrapped two-line
+  `Efficiency`/`Net` layout. The parsed row count must exactly match the
+  server's commodity summary, and exchange/production commodity sets must be
+  identical, or Preview fails closed with no plan.
 - A preview expires after 120 seconds and is discarded after a room change.
 - `ew apply` requires matching GMCP planet ownership and room identity.
 - Location and ownership are checked again before every mutation.
@@ -125,7 +129,7 @@ The 3.0.x global functions remain as compatibility wrappers, including
 
 1. Enable F2CE Tools 3.2.5 or newer in the Mudlet profile.
 2. Open Mudlet Package Manager.
-3. Install `exchange-walker-live-3.1.2-live.mpackage`.
+3. Install `exchange-walker-live-3.1.3-live.mpackage`.
 4. Confirm the load message reports OFF.
 5. Use `ew api` to confirm capture and Mux capabilities.
 
@@ -149,6 +153,10 @@ Do not run multiple Exchange Walker versions simultaneously.
 - The package manages only the current planet and contains no route walker.
 - F2CE's production capture completes after a rolling output-silence timeout;
   Exchange Walker compensates by requiring a complete matching commodity set.
+- F2CE Tools 3.2.5's exchange parser is line-wrap-sensitive. The adapter
+  installs a compatibility parser only while Exchange Walker owns an exchange
+  capture and restores F2CE's original global immediately afterward; it does
+  not permanently patch or modify F2CE Tools.
 - F2CE's planet-owner capture service is global. The adapter refuses to reset a
   capture if its callback ownership has changed, but external callers that do
   not use the adapter cannot participate in its local lease.
