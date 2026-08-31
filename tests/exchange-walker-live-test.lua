@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.1.2.
+-- Offline behavioral checks for Exchange Walker Live 3.1.4.
 -- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
@@ -139,6 +139,19 @@ local exchange_rows = {
   { name = "NanoFabrics", stock_current = -225, stock_min = 0,
     stock_max = 800, spread = 20, net = -5 },
 }
+exchange_rows._expected_count = 5
+local use_raw_exchange = false
+local raw_exchange_buffer = {
+  "Alloys: value 151ig/ton Spread: 20% Stock: current 500/min 100/max 900",
+  "Efficiency: 267% Net: 15",
+  "Meats: value 300ig/ton Spread: 20% Stock: current 0/min 100/max 200 Efficiency: 187%",
+  " Net: -1",
+  "Clinics: value 500ig/ton Spread: 6% Stock: current 200/min 0/max 0 Efficiency: 100% Net: 0",
+  "Gold: value 900ig/ton Spread: 20% Stock: current 10000/min 100/max 900 Efficiency:",
+  " 262% Net: 50",
+  "NanoFabrics: value 700ig/ton Spread: 20% Stock: current -225/min 0/max 800 Efficiency: 100%",
+  " Net: -5",
+}
 local production_rows = {
   Alloys = { production = 20, consumption = 5 },
   Meats = { production = 2, consumption = 3 },
@@ -153,12 +166,21 @@ function f2t_po_reset()
   reset_calls = reset_calls + 1
   f2t_po.phase, f2t_po.callback = "idle", nil
 end
+function f2t_po_parse_exchange_buffer(_buffer)
+  return {} -- Reproduces the incomplete F2CE 3.2.5 wrapped-line parser.
+end
+local original_exchange_parser = f2t_po_parse_exchange_buffer
 function f2t_po_capture_exchange(_, callback)
   if f2t_po.phase ~= "idle" then return false end
   send("display exchange", false)
   f2t_po.phase, f2t_po.callback = "capturing_exchange", callback
   f2t_po_reset()
-  callback(exchange_rows)
+  local data = exchange_rows
+  if use_raw_exchange then
+    line = "5 commodities, 2 deficits, 3 surpluses"
+    data = f2t_po_parse_exchange_buffer(raw_exchange_buffer)
+  end
+  callback(data)
   return true
 end
 function f2t_po_capture_production(_, callback)
@@ -175,7 +197,7 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.1.2-live", "version must be 3.1.2-live")
+check(EW.VERSION == "3.1.4-live", "version must be 3.1.4-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
@@ -204,6 +226,16 @@ check(EW.on() == false and EW.enabled == false, "stale F2CE must fail closed")
 F2T_VERSION = saved_version
 check(EW.on() == true and EW.enabled == true, "validated F2CE must arm")
 check(#sent == 0, "arming must send nothing")
+use_raw_exchange = true
+EW.preview()
+check(f2t_po_parse_exchange_buffer == original_exchange_parser,
+  "Exchange Walker must restore the original F2CE parser after capture")
+run_next_timer()
+check(EW.plan ~= nil and #EW.plan.rows == 5,
+  "mixed one-line and wrapped exchange rows must produce a complete plan")
+check(EW.plan.rows[5].commodity == "NanoFabrics" and EW.plan.rows[5].current == -225,
+  "mixed-wrap parser must preserve a real negative stock deficit")
+use_raw_exchange = false
 
 local saved_alloys = production_rows.Alloys
 production_rows.Alloys = nil
@@ -213,6 +245,20 @@ check(EW.plan == nil, "missing production row must reject the preview")
 check(sent[#sent - 1] == "display exchange" and sent[#sent] == "display production",
   "failed preview may send only the two F2CE display commands")
 production_rows.Alloys = saved_alloys
+
+production_rows.Orphan = { production = 1, consumption = 0 }
+EW.preview()
+run_next_timer()
+check(EW.plan == nil, "production commodity missing from exchange must reject the preview")
+production_rows.Orphan = nil
+
+exchange_rows._expected_count = 67
+EW.preview()
+run_next_timer()
+check(EW.plan == nil, "parsed row count below the exchange summary must reject the preview")
+check(#sent >= 2 and sent[#sent - 1] == "display exchange" and sent[#sent] == "display production",
+  "partial-capture rejection may send only the two read-only display commands")
+exchange_rows._expected_count = 5
 
 local saved_spread = exchange_rows[1].spread
 exchange_rows[1].spread = 5

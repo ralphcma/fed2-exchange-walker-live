@@ -9,11 +9,14 @@ local EW = rawget(_G, "ExchangeWalkerLive")
 if type(EW) ~= "table" then return end
 
 local api = {
-  VERSION = "1.0.0",
+  VERSION = "1.1.0",
   CONTRACT = "ExchangeWalkerLive.F2CE/1.0",
   VALIDATED_F2CE_VERSION = "3.2.5",
   bindings = {},
-  capture = { lease = nil, callback = nil, kind = nil },
+  capture = {
+    lease = nil, callback = nil, kind = nil,
+    parser_name = nil, parser_original = nil, parser_wrapper = nil,
+  },
   core = {},
   display = {},
 }
@@ -23,6 +26,7 @@ api.bindings.functions = {
   capture_exchange = "f2t_po_capture_exchange",
   capture_production = "f2t_po_capture_production",
   capture_reset = "f2t_po_reset",
+  parse_exchange = "f2t_po_parse_exchange_buffer",
 }
 
 local function global_function(key)
@@ -59,7 +63,7 @@ function api.core.versionAtLeast(actual, minimum)
 end
 
 function api.core.captureAvailable()
-  for _, key in ipairs({ "capture_exchange", "capture_production", "capture_reset" }) do
+  for _, key in ipairs({ "capture_exchange", "capture_production", "capture_reset", "parse_exchange" }) do
     local fn, name = global_function(key)
     if not fn then return false, "F2CE capability is missing: " .. tostring(name) end
   end
@@ -127,8 +131,75 @@ function api.core.capabilities()
   }
 end
 
+function api.capture.parseExchangeBuffer(buffer, summary_line)
+  local rows = {}
+  buffer = type(buffer) == "table" and buffer or {}
+
+  local function parse_record(text)
+    local name, value, spread, current, minimum, maximum, efficiency, net = text:match(
+      "^%s*(.-):%s+value%s+(%d+)ig/ton%s+Spread:%s+(%d+)%%%s+Stock:%s+current%s+" ..
+      "(%-?%d+)/min%s+(%-?%d+)/max%s+(%-?%d+)%s+Efficiency:%s*(%d+)%%%s+" ..
+      "Net:%s*(%-?%d+)")
+    if not name then return nil end
+    return {
+      name = name,
+      value = tonumber(value),
+      spread = tonumber(spread),
+      stock_current = tonumber(current),
+      stock_min = tonumber(minimum),
+      stock_max = tonumber(maximum),
+      efficiency = tonumber(efficiency),
+      net = tonumber(net),
+    }
+  end
+
+  local index = 1
+  while index <= #buffer do
+    local text = tostring(buffer[index] or "")
+    local row = parse_record(text)
+    if not row and index < #buffer then
+      local continuation = tostring(buffer[index + 1] or "")
+      if not continuation:match("^%s*.-:%s+value%s+") then
+        row = parse_record(text .. " " .. continuation)
+        if row then index = index + 1 end
+      end
+    end
+    if row then rows[#rows + 1] = row end
+    index = index + 1
+  end
+  local expected = tostring(summary_line or ""):match("^%s*(%d+)%s+commodities,")
+  rows._expected_count = tonumber(expected)
+  return rows
+end
+
+local function restore_capture_parser()
+  local name = api.capture.parser_name
+  local original = api.capture.parser_original
+  local wrapper = api.capture.parser_wrapper
+  if name and wrapper and rawget(_G, name) == wrapper then
+    rawset(_G, name, original)
+  end
+  api.capture.parser_name = nil
+  api.capture.parser_original = nil
+  api.capture.parser_wrapper = nil
+end
+
+local function install_capture_parser()
+  local original, name = global_function("parse_exchange")
+  if not original then return false, "F2CE capability is missing: " .. tostring(name) end
+  local wrapper = function(buffer)
+    return api.capture.parseExchangeBuffer(buffer, rawget(_G, "line"))
+  end
+  api.capture.parser_name = name
+  api.capture.parser_original = original
+  api.capture.parser_wrapper = wrapper
+  rawset(_G, name, wrapper)
+  return true
+end
+
 local function clear_capture_lease(lease)
   if lease == nil or api.capture.lease == lease then
+    restore_capture_parser()
     api.capture.lease = nil
     api.capture.callback = nil
     api.capture.kind = nil
@@ -153,6 +224,14 @@ local function start_capture(kind, callback)
   api.capture.callback = wrapped
   api.capture.kind = kind
 
+  if kind == "exchange" then
+    local parser_ok, parser_reason = install_capture_parser()
+    if not parser_ok then
+      clear_capture_lease(lease)
+      return false, parser_reason
+    end
+  end
+
   local ok, started, reason = pcall(fn, nil, wrapped)
   if not ok then
     clear_capture_lease(lease)
@@ -175,7 +254,10 @@ end
 
 function api.capture.cancel()
   local lease = api.capture.lease
-  if lease == nil then return true end
+  if lease == nil then
+    restore_capture_parser()
+    return true
+  end
 
   -- Do not reset F2CE's global capture if another client replaced our callback.
   local state = rawget(_G, "f2t_po")
