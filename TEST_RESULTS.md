@@ -1,4 +1,4 @@
-# Exchange Walker Live 3.1.3 Test Results
+# Exchange Walker Live 3.1.4 Test Results
 
 Date: 2026-08-31
 
@@ -12,12 +12,12 @@ Date: 2026-08-31
 
 ## Exact package gates
 
-Artifact: `dist/exchange-walker-live-3.1.3-live.mpackage`
+Artifact: `dist/exchange-walker-live-3.1.4-live.mpackage`
 
 SHA-256:
 
 ```text
-7B8A718C53BE5EF617F7100F1C091DC2F4DCAB1889924692E7F4EB7E6D0A2250
+AC6FB0DDB0A70BA431992858FB836138E7311F10D33DC210F130F14360E50B4F
 ```
 
 - Required members: 7/7.
@@ -33,12 +33,13 @@ SHA-256:
 - Default OFF and zero mutation while OFF.
 - F2CE dependency/version failure remains OFF.
 - Complete exchange and production capture requirements.
-- Mixed one-line and wrapped two-line exchange row parsing.
+- One-line rows and wraps before `Efficiency:`, after `Efficiency:`, or before `Net:`.
 - Scoped replacement and restoration of F2CE's exchange parser.
 - Exact parsed-row agreement with the server commodity summary.
 - Bidirectional equality of normalized exchange and production commodity sets.
 - Partial capture rejection with no plan and no mutation command.
 - Existing negative-stock deficit acceptance remains covered.
+- Supplementary replay of the reported Tempest exchange output: 67/67 rows parsed.
 - Strict stock and spread field validation, while accepting finite negative
   current-stock deficits as valid live exchange data.
 - Positive stock below and at the 10,000-ton policy boundary.

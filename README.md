@@ -129,7 +129,7 @@ The 3.0.x global functions remain as compatibility wrappers, including
 
 1. Enable F2CE Tools 3.2.5 or newer in the Mudlet profile.
 2. Open Mudlet Package Manager.
-3. Install `exchange-walker-live-3.1.3-live.mpackage`.
+3. Install `exchange-walker-live-3.1.4-live.mpackage`.
 4. Confirm the load message reports OFF.
 5. Use `ew api` to confirm capture and Mux capabilities.
 

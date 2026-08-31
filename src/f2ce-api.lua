@@ -134,32 +134,37 @@ end
 function api.capture.parseExchangeBuffer(buffer, summary_line)
   local rows = {}
   buffer = type(buffer) == "table" and buffer or {}
+
+  local function parse_record(text)
+    local name, value, spread, current, minimum, maximum, efficiency, net = text:match(
+      "^%s*(.-):%s+value%s+(%d+)ig/ton%s+Spread:%s+(%d+)%%%s+Stock:%s+current%s+" ..
+      "(%-?%d+)/min%s+(%-?%d+)/max%s+(%-?%d+)%s+Efficiency:%s*(%d+)%%%s+" ..
+      "Net:%s*(%-?%d+)")
+    if not name then return nil end
+    return {
+      name = name,
+      value = tonumber(value),
+      spread = tonumber(spread),
+      stock_current = tonumber(current),
+      stock_min = tonumber(minimum),
+      stock_max = tonumber(maximum),
+      efficiency = tonumber(efficiency),
+      net = tonumber(net),
+    }
+  end
+
   local index = 1
   while index <= #buffer do
     local text = tostring(buffer[index] or "")
-    local name, value, spread, current, minimum, maximum, tail = text:match(
-      "^%s*(.-):%s+value%s+(%d+)ig/ton%s+Spread:%s+(%d+)%%%s+Stock:%s+current%s+" ..
-      "(%-?%d+)/min%s+(%-?%d+)/max%s+(%-?%d+)%s+Efficiency:%s*(.*)$")
-    if name then
-      local efficiency, net = tail:match("^(%d+)%%%s+Net:%s+(%-?%d+)")
-      if not efficiency and index < #buffer then
-        efficiency, net = tostring(buffer[index + 1] or ""):match(
-          "^%s*(%d+)%%%s+Net:%s+(%-?%d+)")
-        if efficiency then index = index + 1 end
-      end
-      if efficiency then
-        rows[#rows + 1] = {
-          name = name,
-          value = tonumber(value),
-          spread = tonumber(spread),
-          stock_current = tonumber(current),
-          stock_min = tonumber(minimum),
-          stock_max = tonumber(maximum),
-          efficiency = tonumber(efficiency),
-          net = tonumber(net),
-        }
+    local row = parse_record(text)
+    if not row and index < #buffer then
+      local continuation = tostring(buffer[index + 1] or "")
+      if not continuation:match("^%s*.-:%s+value%s+") then
+        row = parse_record(text .. " " .. continuation)
+        if row then index = index + 1 end
       end
     end
+    if row then rows[#rows + 1] = row end
     index = index + 1
   end
   local expected = tostring(summary_line or ""):match("^%s*(%d+)%s+commodities,")

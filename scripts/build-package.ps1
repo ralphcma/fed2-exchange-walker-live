@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $packageDirectory = Join-Path $repositoryRoot 'package'
 $distributionDirectory = Join-Path $repositoryRoot 'dist'
-$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.1.3-live.mpackage'
+$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.1.4-live.mpackage'
 $temporaryPath = Join-Path ([System.IO.Path]::GetTempPath()) ('exchange-walker-live-' + [guid]::NewGuid().ToString('N') + '.zip')
 
 $sourcePaths = @(

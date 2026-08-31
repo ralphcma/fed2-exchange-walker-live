@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.1.4-live — 2026-08-31
+
+- Corrected the 3.1.3 compatibility parser after live evidence showed that
+  exchange rows can wrap before `Efficiency:` or between the efficiency value
+  and `Net:`, rather than only after the `Efficiency:` label.
+- Reconstructs a commodity record from its bounded continuation line before
+  parsing, while refusing to consume the start of another commodity row.
+- Retains exact summary-count and bidirectional commodity-set validation, so
+  an unrecognized layout still creates no plan and sends no mutation command.
+- Updated the regression fixture to cover the three observed layouts and
+  replayed the reported 67-commodity Tempest capture at 67/67 offline.
+
 ## 3.1.3-live — 2026-08-31
 
 - Fixed incomplete exchange plans caused by F2CE Tools 3.2.5 parsing only

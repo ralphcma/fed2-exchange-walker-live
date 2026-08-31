@@ -15,7 +15,7 @@ From the repository root:
 powershell -ExecutionPolicy Bypass -File .\scripts\build-package.ps1
 ```
 
-The result is `dist/exchange-walker-live-3.1.3-live.mpackage`.
+The result is `dist/exchange-walker-live-3.1.4-live.mpackage`.
 
 The archive contains:
 

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.1.3.
+-- Offline behavioral checks for Exchange Walker Live 3.1.4.
 -- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
@@ -142,13 +142,15 @@ local exchange_rows = {
 exchange_rows._expected_count = 5
 local use_raw_exchange = false
 local raw_exchange_buffer = {
-  "Alloys: value 151ig/ton Spread: 20% Stock: current 500/min 100/max 900 Efficiency: 267% Net: 15",
-  "Meats: value 300ig/ton Spread: 20% Stock: current 0/min 100/max 200 Efficiency:",
-  " 187% Net: -1",
+  "Alloys: value 151ig/ton Spread: 20% Stock: current 500/min 100/max 900",
+  "Efficiency: 267% Net: 15",
+  "Meats: value 300ig/ton Spread: 20% Stock: current 0/min 100/max 200 Efficiency: 187%",
+  " Net: -1",
   "Clinics: value 500ig/ton Spread: 6% Stock: current 200/min 0/max 0 Efficiency: 100% Net: 0",
   "Gold: value 900ig/ton Spread: 20% Stock: current 10000/min 100/max 900 Efficiency:",
   " 262% Net: 50",
-  "NanoFabrics: value 700ig/ton Spread: 20% Stock: current -225/min 0/max 800 Efficiency: 100% Net: -5",
+  "NanoFabrics: value 700ig/ton Spread: 20% Stock: current -225/min 0/max 800 Efficiency: 100%",
+  " Net: -5",
 }
 local production_rows = {
   Alloys = { production = 20, consumption = 5 },
@@ -195,7 +197,7 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.1.3-live", "version must be 3.1.3-live")
+check(EW.VERSION == "3.1.4-live", "version must be 3.1.4-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",

@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.1.3-live
+-- Version 3.1.4-live
 --
 -- Current-planet owner stockpile planner. Capture and workspace integration
 -- are delegated through f2ce-api.lua so future F2CE changes stay isolated.
@@ -20,7 +20,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.1.3-live"
+EW.VERSION = "3.1.4-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
