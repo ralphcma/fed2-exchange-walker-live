@@ -247,6 +247,7 @@ function api.display.mountContentTab(content_id, options)
     return false, "F2CE workspace pane does not expose tab placement operations"
   end
 
+  local previous_active_tab = pane._activeTabId
   local tabs = mux_tabs(pane)
   for _, required_content in ipairs(options.required_contents or {}) do
     local found = false
@@ -297,6 +298,11 @@ function api.display.mountContentTab(content_id, options)
     local activated_ok, activated_reason = pcall(pane.activateTab, pane, target.id)
     if not activated_ok then
       return false, "Mux tab activation failed: " .. tostring(activated_reason)
+    end
+  elseif previous_active_tab ~= nil and pane._activeTabId ~= previous_active_tab then
+    local restored_ok, restored_reason = pcall(pane.activateTab, pane, previous_active_tab)
+    if not restored_ok then
+      return false, "Mux active-tab restoration failed: " .. tostring(restored_reason)
     end
   end
   return true, target, created

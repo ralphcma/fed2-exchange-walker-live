@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.1.1-live
+-- Version 3.1.2-live
 --
 -- Current-planet owner stockpile planner. Capture and workspace integration
 -- are delegated through f2ce-api.lua so future F2CE changes stay isolated.
@@ -20,7 +20,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.1.1-live"
+EW.VERSION = "3.1.2-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -274,13 +274,21 @@ function EW.ui.registerMuxContent()
   return ok, reason
 end
 
-function EW.ui.mount()
-  return false,
-    "Automatic Mux workspace mutation is disabled; add Exchange Walker through the Content Library."
+function EW.ui.mount(activate, reapply)
+  local ok, target, created = EW.f2ce.display.mountContentTab(EW.ui.content_id, {
+    pane_id = EW.ui.preferred_pane_id, pane_name = EW.ui.preferred_pane_name,
+    tab_name = EW.ui.preferred_tab_name,
+    required_contents = { "fed2_who", "fed2_exchange" },
+    activate = activate == true, reapply = reapply == true,
+  })
+  if ok then EW.ui.registered_target = target end
+  return ok, target, created
 end
 
 function EW.ui.install()
-  return EW.ui.registerMuxContent()
+  local registered, reason = EW.ui.registerMuxContent()
+  if not registered then return false, reason end
+  return EW.ui.mount(false, next(EW.ui.instances) == nil)
 end
 
 function EW.ui.show()
@@ -288,20 +296,9 @@ function EW.ui.show()
     local ok = EW.ui.registerMuxContent()
     if not ok then return false end
   end
-  local target = EW.ui.registered_target
-  if not target then
-    notice("yellow", "Stockpiles content is registered but not placed. Add Exchange Walker through the Muxlet Content Library.")
-    return false
-  end
-  local pane = target.pane
-  if pane and type(pane.activateTab) == "function" and target.id then
-    local ok = pcall(pane.activateTab, pane, target.id)
-    if not ok then return false end
-  elseif type(Mux) == "table" and type(Mux.raisePane) == "function" then
-    pcall(Mux.raisePane, target)
-  end
-  update_ui()
-  return true
+  local ok, reason = EW.ui.mount(true, next(EW.ui.instances) == nil)
+  if not ok then notice("yellow", "Mux display unavailable: " .. tostring(reason)) end
+  return ok
 end
 
 local function validate_complete_capture(exchange_data, production_data)
@@ -751,6 +748,7 @@ local function install_runtime_hooks()
   end
   add_handler("muxletReady", function()
     EW.ui.registerMuxContent()
+    EW.ui.mount(false, next(EW.ui.instances) == nil)
     update_ui()
   end)
   add_handler("sysDisconnectionEvent", function()
@@ -817,10 +815,10 @@ exchange_walker_shutdown = EW.shutdown
 fetch_and_process_data = EW.preview
 
 install_runtime_hooks()
-local registered, register_reason = EW.ui.install()
+local mounted, mount_reason = EW.ui.install()
 update_ui()
-if not registered and register_reason then
-  notice("yellow", "F2CE Mux content is not registered: " .. tostring(register_reason)
+if not mounted and mount_reason then
+  notice("yellow", "F2CE Mux display is not mounted: " .. tostring(mount_reason)
     .. ". Console commands remain available.")
 end
 notice("cyan", string.format(

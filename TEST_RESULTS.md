@@ -1,4 +1,4 @@
-# Exchange Walker Live 3.1.1 Test Results
+# Exchange Walker Live 3.1.2 Test Results
 
 Date: 2026-08-31
 
@@ -6,24 +6,24 @@ Date: 2026-08-31
 
 - Lua 5.1 syntax: `f2ce-api.lua`, `exchange-walker-live.lua`, and the offline
   test harness passed `luac5.1 -p`.
-- Offline source behavior: `RESULT 67 passed, 0 failed`.
+- Offline source behavior: `RESULT 68 passed, 0 failed`.
 - Git whitespace validation: passed.
 - Mudlet package XML parsed with root `MudletPackage`.
 
 ## Exact package gates
 
-Artifact: `dist/exchange-walker-live-3.1.1-live.mpackage`
+Artifact: `dist/exchange-walker-live-3.1.2-live.mpackage`
 
 SHA-256:
 
 ```text
-840AE9B5E10DCDD11019A151CE242AB10F5538227B384A318B9EECF11838FBC9
+3A4A3A9D479172F4858C7C17226D7D58A267CD80D0344C2541857B3A72AE3D6D
 ```
 
 - Required members: 7/7.
 - Unexpected members: 0.
 - Packaged Lua syntax: passed.
-- Exact-package offline behavior: `RESULT 67 passed, 0 failed`.
+- Exact-package offline behavior: `RESULT 68 passed, 0 failed`.
 - Packaged/source Lua hashes: 2/2 exact matches.
 - XML, absolute-path, identity-leak, credential-string, and localhost checks:
   passed.
@@ -40,8 +40,8 @@ SHA-256:
 - Server-valid amount-first spread command generation.
 - Explicit Apply, one outstanding command at a time, exact acknowledgement,
   mismatch stop, single-use plan, and no replay.
-- F2CE Mux content registration without automatic workspace mutation, user-placed
-  Stockpiles display reuse, active-tab preservation, and idempotent reload.
+- Automatic visible Stockpiles placement, restoration of the previously active
+  F2CE tab, background preview updates, explicit display, and idempotent reload.
 - Reconnect reset to OFF and runtime-hook cleanup.
 - Standalone operation without FedHaulerLive.
 

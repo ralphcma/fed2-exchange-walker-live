@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.2-live — 2026-08-31
+
+- Restored automatic visible Stockpiles-tab placement after 3.1.1 made the
+  registered content invisible unless manually added through Content Library.
+- Added adapter-level restoration of the previously active F2CE tab, including
+  when Muxlet internally selects a newly added tab.
+- Kept preview output background-only; only explicit `ew display` activates the
+  Stockpiles tab.
+- Added regression coverage for Mux add-tab selection, active-tab restoration,
+  visible placement, idempotent mount, and reload.
+
 ## 3.1.1-live — 2026-08-31
 
 - Fixed valid negative current-stock deficits being rejected as incomplete

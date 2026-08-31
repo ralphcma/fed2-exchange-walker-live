@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.1.1.
+-- Offline behavioral checks for Exchange Walker Live 3.1.2.
 -- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
@@ -105,6 +105,7 @@ function pane:addTab(name, _position)
     content = {}, contentBg = new_widget(),
   }
   self._tabs[#self._tabs + 1] = target
+  self._activeTabId = target.id -- model Mux addTab selecting the new tab internally
   return target
 end
 function pane:activateTab(id) self._activeTabId = id end
@@ -174,21 +175,24 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.1.1-live", "version must be 3.1.1-live")
+check(EW.VERSION == "3.1.2-live", "version must be 3.1.2-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
   "public API contract must be available")
 check(rawget(_G, "FedHaulerLive") == nil, "standalone runtime must not require FedHaulerLive")
 check(type(mux_content.exchange_walker_live) == "table", "Mux content must register")
-check(#pane._tabs == 2, "installation must not mutate the F2CE workspace")
-check(EW.ui.show() == false and #pane._tabs == 2,
-  "display request must not create a Mux tab behind the Content Library")
-local stockpile_tab = pane:addTab("Stockpiles")
-Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
-check(type(EW.ui.instances[stockpile_tab]) == "table",
-  "Content Library placement must build the Stockpiles display")
-check(pane._activeTabId == "who", "content placement must preserve the default F2CE tab")
+check(pane._tabs[3] and pane._tabs[3].name == "Stockpiles",
+  "installation must automatically place the Stockpiles tab")
+local stockpile_tab = pane._tabs[3]
+check(type(EW.ui.instances[stockpile_tab]) == "table"
+    and stockpile_tab._activeContent == "exchange_walker_live",
+  "automatic placement must build the Stockpiles display")
+check(pane._activeTabId == "who",
+  "automatic placement must restore the previously active F2CE tab")
+check(EW.ui.mount(false, false) == true and #pane._tabs == 3
+    and pane._activeTabId == "who",
+  "idempotent background mount must not duplicate or activate the tab")
 
 EW.preview()
 EW.apply()
@@ -311,7 +315,7 @@ local active_trigger_count = 0
 for _, trigger in pairs(triggers) do if trigger.active then active_trigger_count = active_trigger_count + 1 end end
 check(active_trigger_count == 3, "reload must leave exactly three active confirmation triggers")
 check(#pane._tabs == 3, "reload must not duplicate the Stockpiles Mux tab")
-Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
+check(type(EW.ui.instances[stockpile_tab]) == "table", "reload must rebuild saved Mux content")
 check(EW.ui.show() == true and pane._activeTabId == stockpile_tab.id,
   "saved Content Library placement must remain usable after reload")
 check(EW.public.capabilities().capture.available == true, "API capability report must expose capture")
