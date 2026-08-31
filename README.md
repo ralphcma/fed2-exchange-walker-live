@@ -1,312 +1,158 @@
-# Exchange Walker Live 3.0.1
+# Exchange Walker Live
 
-[![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
+Exchange Walker Live is an independently installable Mudlet package for
+Federation 2 planet owners. It uses F2CE Tools to capture the current planet's
+exchange and production reports, calculates a stockpile and price-spread plan,
+shows that plan in a dedicated F2CE Muxlet tab, and applies it only after an
+explicit user command.
 
-An installable Mudlet package for controlled Federation 2 planet-exchange
-stockpile management. Download the current package from
-[`dist/exchange-walker-live-3.0.1-live.mpackage`](dist/exchange-walker-live-3.0.1-live.mpackage).
+It does not navigate between planets, trade cargo, trade futures, or require
+FedHaulerLive. Its only package dependency is F2CE Tools 3.2.5 or newer. Muxlet
+is used when available through F2CE Tools; aliases and console output remain a
+fallback if the workspace is not running.
 
-Exchange Walker Live is a Mudlet add-on for the Federation 2 public live
-server. It reads the current planet's exchange and production reports, displays
-a proposed stockpile plan, and applies that plan only after a separate explicit
-command.
+## Safety model
 
-The add-on starts **OFF**. Loading it, enabling it, or clicking its toggle does
-not change the game. `ew apply` is the only operation that sends stockpile
-setting commands.
+- Fresh load, reload, disconnect, and reconnect default to OFF.
+- `ew on` only arms the package and sends no gameplay command.
+- `ew preview` sends `display exchange` and `display production` through F2CE
+  Tools; it sends no mutation command.
+- Incomplete or malformed exchange or production captures create no plan.
+- A preview expires after 120 seconds and is discarded after a room change.
+- `ew apply` requires matching GMCP planet ownership and room identity.
+- Location and ownership are checked again before every mutation.
+- Each command is sent once and the next command waits for the expected server
+  acknowledgement. A mismatch or six-second timeout stops the remaining queue.
+- OFF and Cancel stop unsent work. Commands already delivered cannot be recalled.
 
-## Requirements
+## Stockpile and spread policy
 
-- Desktop Mudlet using the `fed2ce` profile.
-- The current `f2ce-tools` package enabled in that profile.
-- A live-server character who owns the current planet.
-- The planet must have an exchange for the display and stockpile commands.
-- GMCP must be active. Ownership and location are verified from GMCP before an
-  apply operation.
+Net production is calculated as:
 
-Exchange Walker does not store an account name or password.
-
-## Before installing
-
-If Exchange Walker 2.0 was previously pasted into Mudlet or loaded with
-`lua fetch_and_process_data()`, remove or disable that old script and restart
-the `fed2ce` profile. Version 2.0 created temporary triggers that remain active
-until the profile session ends. Leaving those triggers active can cause
-duplicate captures or stockpile commands.
-
-Do not install version 3.0.1 while an old Exchange Walker operation is running.
-
-## Recommended persistent installation
-
-1. Start Mudlet and open the `fed2ce` profile.
-2. Open **Package Manager** from Mudlet's package/module controls.
-3. Choose **Install**.
-4. Select the downloaded package:
-
-   ```text
-   exchange-walker-live-3.0.1-live.mpackage
-   ```
-
-5. Confirm the package installation.
-6. Restart or reload the `fed2ce` profile.
-7. Confirm that Mudlet displays a message similar to:
-
-   ```text
-   [Exchange Walker] v3.0.1-live loaded for the public live server; default is OFF.
-   ```
-
-8. Confirm that the upper-right toggle reads:
-
-   ```text
-   Exchange Walker: OFF
-   ```
-
-The Package Manager method loads the add-on automatically on later profile
-starts.
-
-## Temporary installation
-
-To test the add-on without installing the package, copy
-`src/exchange-walker-live.lua` into the active Mudlet profile directory and
-enter this in Mudlet's command line:
-
-```lua
-lua dofile(getMudletHomeDir() .. "/exchange-walker-live.lua")
+```text
+net = production - consumption
 ```
 
-The temporary installation must be loaded again after restarting the profile.
+| Condition | Target minimum | Target maximum | Target spread |
+|---|---:|---:|---:|
+| Net `<= 0` | `0` | `0` | `6%` |
+| Net `> 0`, current stock `< 10,000` | Current stock | Current stock + `1,000` | `40%` |
+| Net `> 0`, current stock `>= 10,000` | `10,000` | `20,000` | `40%` |
+
+Only values that differ from the capture become actions. The live server syntax
+for spread is amount-first, so a positive Alloys producer generates:
+
+```text
+set spread 40 Alloys
+```
+
+A nonpositive producer generates `set spread 6 <commodity>`.
+
+## F2CE Muxlet display
+
+The package registers content ID `exchange_walker_live` and safely mounts a
+selectable **Stockpiles** tab in F2CE's verified top-left `LeftTop` pane beside
+the existing **Who** and **Exchange** tabs. It does not replace either built-in
+content module or change the workspace's default tab.
+
+The display contains ON/OFF, Preview, Apply, Cancel, and Clear controls plus
+narrow-pane cards combining `display exchange` and `display production`:
+
+```text
+Alloys            net +15 | stock 500
+  prod/cons 20/5 | spread 20 -> 40
+  limits 100/900 -> 500/1500
+```
+
+Use `ew display` to select the Stockpiles tab. If Muxlet is unavailable, the
+same preview is printed to the main console and all aliases continue to work.
 
 ## Commands
 
-| Command | Purpose |
+| Command | Operation |
 |---|---|
-| `ew help` | Display the command summary. |
-| `ew on` | Enable capture and preview operations. Sends no game command. |
-| `ew off` | Disable the walker, cancel capture, and cancel unsent commands. |
-| `ew toggle` | Switch between ON and OFF. |
-| `ew preview` | Read exchange and production data and construct a plan. |
-| `ew apply` | Apply the latest reviewed, unexpired plan exactly once. |
-| `ew cancel` | Cancel an active capture or commands not yet sent. |
-| `ew status` | Display enabled, activity, and plan status. |
+| `ew on` | Arm preview and explicit apply; sends nothing |
+| `ew off` | Disable and cancel capture or unsent changes |
+| `ew preview` | Capture exchange and production and build a plan |
+| `ew apply` | Apply the latest reviewed, unexpired plan once |
+| `ew cancel` | Cancel capture or unsent changes without disabling |
+| `ew display` | Open the F2CE Stockpiles Mux tab |
+| `ew status` | Show lifecycle and plan state |
+| `ew api` | Show adapter, F2CE, capture, and Mux capabilities |
+| `ew help` | Show command help in the Stockpiles display |
 
-The original function name remains available for existing buttons:
-
-```lua
-lua fetch_and_process_data()
-```
-
-That function now performs a preview only. It does not apply the result.
-
-To apply from a Mudlet Lua button or command:
-
-```lua
-lua exchange_walker_apply()
-```
-
-## ON/OFF toggle
-
-The add-on creates a small button at the upper-right of Mudlet:
-
-- Red `Exchange Walker: OFF`: no new capture or apply operation can start.
-- Green `Exchange Walker: ON`: preview and explicit apply commands are
-  available.
-
-Clicking the button only changes the local enabled state. It never sends a
-stockpile command.
-
-The text commands `ew on` and `ew off` remain available if the button is hidden
-by another Mudlet layout element.
-
-## Safe operating procedure
-
-1. Log into the public live server using the `fed2ce` Mudlet profile.
-2. Make sure `f2ce-tools` is loaded and GMCP information is updating.
-3. Move to a planet owned by the active character.
-4. Enable Exchange Walker:
-
-   ```text
-   ew on
-   ```
-
-5. Request a preview:
-
-   ```text
-   ew preview
-   ```
-
-6. Wait for the complete preview table. The capture uses the live server's
-   exchange completion marker and a rolling production-output completion
-   timer supplied by F2CE Tools.
-7. Review every old and proposed minimum/maximum value.
-8. If the plan is correct, apply it within two minutes without moving:
-
-   ```text
-   ew apply
-   ```
-
-9. Read the server's confirmations. Commands are sent once and are never
-   automatically retried.
-10. Run another preview if any confirmation is missing or unexpected.
-11. Disable the walker when finished:
-
-   ```text
-   ew off
-   ```
-
-For the first live use, stop after `ew preview` and inspect the table. Apply
-only after confirming that the proposed policy matches the planet owner's
-intent.
-
-## Stockpile policy
-
-For each commodity:
-
-- Net production less than or equal to zero:
-  - Minimum target: `0`
-  - Maximum target: `0`
-- Positive net production with current stock below 10,000 tons:
-  - Minimum target: current stock, never below zero
-  - Maximum target: minimum plus 1,000 tons
-- Positive net production with current stock of at least 10,000 tons:
-  - Existing minimum and maximum remain unchanged
-
-No command is generated for a setting that already matches its target.
-
-## Live commands used
-
-Preview uses the F2CE Tools public-live parser and sends the display commands
-for the current planet:
+Recommended flow:
 
 ```text
-display exchange
-display production
-```
-
-Apply can send reviewed commands of these forms:
-
-```text
-set stockpile min <tons> <commodity>
-set stockpile max <tons> <commodity>
-```
-
-There is no scheduled or recurring automation.
-
-## Safety behavior
-
-- The default state after loading is OFF.
-- Apply requires GMCP to identify both the active character and planet owner.
-- Apply is rejected if ownership does not match.
-- A plan expires after two minutes.
-- A room/location change invalidates the plan.
-- A plan is marked applied before its first command is sent and cannot replay.
-- OFF cancels capture and commands that have not yet been sent.
-- Commands already delivered to the server cannot be recalled. After a cancel
-  during apply, run a new preview to reconcile partial changes.
-- Unexpected or missing server confirmation is not retried automatically.
-
-## Troubleshooting
-
-### `F2CE Tools planet-owner capture functions are unavailable`
-
-Enable or update the installed `f2ce-tools` package, then restart the profile.
-Exchange Walker intentionally uses its live-tested parser instead of installing
-duplicate exchange triggers.
-
-### `No live exchange rows were captured`
-
-Confirm that:
-
-- the active character owns the current planet;
-- the planet has an exchange;
-- F2CE Tools is enabled;
-- the profile is connected to the public live server; and
-- no other F2CE Tools planet-owner capture is active.
-
-### Ownership is unknown or does not match
-
-Wait for GMCP to populate, move or look to refresh room state, and run a new
-preview. Exchange Walker will not bypass the ownership check.
-
-### Preview expired
-
-Run:
-
-```text
+ew on
 ew preview
 ```
 
-Review the new values before applying.
-
-### Location changed
-
-Return to the intended planet and create a new preview. An old plan is never
-carried to another location.
-
-### Duplicate output or duplicate commands
-
-An older Exchange Walker script or trigger set is probably still active.
-Immediately use `ew off`, stop issuing apply commands, restart the Mudlet
-profile, remove the old version 2.0 script/triggers, and load only version 3.0.
-
-### Toggle is not visible
-
-Another GUI element may cover the upper-right label. Use:
+Review every proposed limit and spread. If correct, without moving:
 
 ```text
-ew status
-ew on
-ew off
+ew apply
 ```
 
-The add-on remains fully operable without clicking the button.
+Run a new preview after any timeout, mismatch, cancellation, or partial apply.
 
-## Updating
+## Compatibility boundary
+
+`f2ce-api.lua` is the only module that binds to F2CE globals and Mux workspace
+operations. Feature code uses the adapter contract
+`ExchangeWalkerLive.F2CE/1.0`. F2CE upgrades should normally require changes in
+that one adapter rather than in the policy engine.
+
+An optional stable integration surface is available at:
+
+```lua
+ExchangeWalkerLive.public
+```
+
+Contract `ExchangeWalkerLive/1.0` exposes `status`, `on`, `off`, `preview`,
+`apply`, `cancel`, `show`, `capabilities`, `subscribe`, and `unsubscribe`.
+Events include `state.changed`, `plan.ready`, `preview.failed`,
+`apply.started`, `apply.command_sent`, `apply.confirmed`, `apply.completed`, and
+`apply.failed`. Third-party integration is optional; standalone operation does
+not require another package.
+
+The 3.0.x global functions remain as compatibility wrappers, including
+`fetch_and_process_data()` as preview-only and `exchange_walker_apply()`.
+
+## Install
+
+1. Enable F2CE Tools 3.2.5 or newer in the Mudlet profile.
+2. Open Mudlet Package Manager.
+3. Install `exchange-walker-live-3.1.0-live.mpackage`.
+4. Confirm the load message reports OFF.
+5. Use `ew api` to confirm capture and Mux capabilities.
+
+Do not run 3.0.x and 3.1.0 simultaneously.
+
+## Upgrade
+
+1. Use `ew off` and wait for any already-sent server response.
+2. Uninstall the older `exchange-walker-live` package.
+3. Install the new `.mpackage`.
+4. Confirm it loads OFF and create a new preview. Old plans are never restored.
+
+## Uninstall
 
 1. Use `ew off`.
-2. Uninstall the existing `exchange-walker-live` package through Package
-   Manager.
-3. Restart the profile to clear temporary aliases, triggers, and the old
-   button.
-4. Install the new `.mpackage`.
-5. Restart the profile and verify the reported version.
+2. Uninstall `exchange-walker-live` in Mudlet Package Manager.
+3. Restart the profile if an old Mux workspace tab remains cached.
 
-## Uninstalling
+## Known limitations
 
-1. Enter `ew off`.
-2. Open Package Manager.
-3. Uninstall `exchange-walker-live`.
-4. Restart the `fed2ce` profile.
-5. Optionally remove the standalone Lua and `.mpackage` files from the profile
-   directory after keeping any desired backup.
-
-## Verification information
-
-Package version:
-
-```text
-3.0.1-live
-```
-
-The Lua source passes Lua 5.1 syntax validation. Offline tests verify that:
-
-- loading and enabling send no commands;
-- preview sends no stockpile mutation;
-- explicit apply sends each planned setting once;
-- an applied plan cannot replay; and
-- OFF clears the plan and disables further actions.
-- incomplete or malformed production captures create no plan and cannot be
-  applied.
-
-No public live-server connection was used during development verification.
-
-## Source provenance
-
-Version 3.0 was updated from Exchange Walker 2.0 by Ersella of Serenity. It
-retains the original stockpile policy while adapting capture to the current
-public-server F2CE Tools interface and adding explicit preview/apply safety
-controls.
+- The package manages only the current planet and contains no route walker.
+- F2CE's production capture completes after a rolling output-silence timeout;
+  Exchange Walker compensates by requiring a complete matching commodity set.
+- F2CE's planet-owner capture service is global. The adapter refuses to reset a
+  capture if its callback ownership has changed, but external callers that do
+  not use the adapter cannot participate in its local lease.
+- A command delivered before OFF or Cancel cannot be recalled.
+- No live-account command is issued by the offline test suite.
 
 ## License
 
-Exchange Walker Live is free software distributed under the GNU General Public
-License version 2.0 only (`GPL-2.0-only`). See [LICENSE](LICENSE).
+Exchange Walker Live is licensed under GPL-2.0-only. See `LICENSE`.
