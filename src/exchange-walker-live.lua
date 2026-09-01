@@ -2,9 +2,9 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.1.4-live
+-- Version 3.2.0-live
 --
--- Current-planet owner stockpile planner. Capture and workspace integration
+-- Current-planet owner stockpile planner. Capture and public Mux registration
 -- are delegated through f2ce-api.lua so future F2CE changes stay isolated.
 -- Loading and reconnecting always return to OFF. Preview sends only the F2CE
 -- display commands; apply is a separate explicit action and advances only after
@@ -20,7 +20,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.1.4-live"
+EW.VERSION = "3.2.0-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -274,31 +274,21 @@ function EW.ui.registerMuxContent()
   return ok, reason
 end
 
-function EW.ui.mount(activate, reapply)
-  local ok, target, created = EW.f2ce.display.mountContentTab(EW.ui.content_id, {
-    pane_id = EW.ui.preferred_pane_id, pane_name = EW.ui.preferred_pane_name,
-    tab_name = EW.ui.preferred_tab_name,
-    required_contents = { "fed2_who", "fed2_exchange" },
-    activate = activate == true, reapply = reapply == true,
-  })
-  if ok then EW.ui.registered_target = target end
-  return ok, target, created
+function EW.ui.mount(_activate, _reapply)
+  return false, "pane placement is user-controlled through Muxlet Content Library"
 end
 
 function EW.ui.install()
-  local registered, reason = EW.ui.registerMuxContent()
-  if not registered then return false, reason end
-  return EW.ui.mount(false, next(EW.ui.instances) == nil)
+  return EW.ui.registerMuxContent()
 end
 
 function EW.ui.show()
   if not EW.ui.registered then
-    local ok = EW.ui.registerMuxContent()
-    if not ok then return false end
+    local ok, reason = EW.ui.registerMuxContent()
+    if not ok then notice("yellow", "Mux display unavailable: " .. tostring(reason)) return false end
   end
-  local ok, reason = EW.ui.mount(true, next(EW.ui.instances) == nil)
-  if not ok then notice("yellow", "Mux display unavailable: " .. tostring(reason)) end
-  return ok
+  notice("cyan", "Exchange Walker content is registered. Select Exchange Walker from Muxlet Content Library in any user-chosen pane or tab.")
+  return true
 end
 
 local function validate_complete_capture(exchange_data, production_data)
@@ -418,16 +408,13 @@ local function make_plan(exchange_data, production_data, room_identity)
   local actions = {}
   for _, row in ipairs(rows) do
     if row.target_min ~= row.old_min then
-      actions[#actions + 1] = { kind = "min", commodity = row.commodity, value = row.target_min,
-        command = string.format("set stockpile min %d %s", row.target_min, row.commodity) }
+      actions[#actions + 1] = { kind = "min", commodity = row.commodity, value = row.target_min }
     end
     if row.target_max ~= row.old_max then
-      actions[#actions + 1] = { kind = "max", commodity = row.commodity, value = row.target_max,
-        command = string.format("set stockpile max %d %s", row.target_max, row.commodity) }
+      actions[#actions + 1] = { kind = "max", commodity = row.commodity, value = row.target_max }
     end
     if row.target_spread ~= row.old_spread then
-      actions[#actions + 1] = { kind = "spread", commodity = row.commodity, value = row.target_spread,
-        command = string.format("set spread %d %s", row.target_spread, row.commodity) }
+      actions[#actions + 1] = { kind = "spread", commodity = row.commodity, value = row.target_spread }
     end
   end
   return { created_at = os.time(), room_identity = room_identity,
@@ -629,19 +616,22 @@ send_action = function(index)
     emit("apply.completed", { plan = EW.plan })
     return true
   end
-  if type(send) ~= "function" then return stop_apply("Mudlet send() is unavailable.") end
   EW.apply_index = index
   EW.pending_confirmation = {
     key = normalized(action.commodity) .. ":" .. action.kind,
     value = action.value, action = action,
   }
-  send(action.command, false)
+  local dispatched, dispatch_reason = EW.f2ce.commands.stockpile(
+    action.kind, action.commodity, action.value)
+  if not dispatched then
+    return stop_apply("Shared API blocked the reviewed setting change: " .. tostring(dispatch_reason))
+  end
   emit("apply.command_sent", { index = index, action = action })
   EW.confirmation_timer = tempTimer(EW.confirmation_timeout_seconds, function()
     EW.confirmation_timer = nil
     stop_apply(string.format(
-      "Timed out waiting for confirmation of `%s`. Remaining changes were not sent; run a new preview.",
-      action.command))
+      "Timed out waiting for confirmation of %s %s=%d. Remaining changes were not sent; run a new preview.",
+      action.commodity, action.kind, action.value))
   end)
   return true
 end
@@ -716,12 +706,12 @@ end
 
 local function api_status()
   local caps = EW.f2ce.core.capabilities()
+  local capture = caps.profiles and caps.profiles.capture or { available = false }
   notice("cyan", string.format(
-    "API %s | F2CE adapter %s | F2CE %s | capture %s | Mux %s | mount %s.",
-    EW.API_CONTRACT, tostring(caps.adapter_version), tostring(caps.f2ce_version or "missing"),
-    caps.capture.available and "available" or "missing",
-    caps.display.registration and "available" or "missing",
-    caps.display.workspace_mount and "available" or "missing"))
+    "API %s | shared API %s | F2CE %s | capture %s | public Mux registration %s.",
+    EW.API_CONTRACT, tostring(caps.api_version), tostring(caps.f2ce_version or "missing"),
+    capture.available and "available" or "missing",
+    caps.display.registration and "available" or "missing"))
   return caps
 end
 
@@ -763,7 +753,6 @@ local function install_runtime_hooks()
   end
   add_handler("muxletReady", function()
     EW.ui.registerMuxContent()
-    EW.ui.mount(false, next(EW.ui.instances) == nil)
     update_ui()
   end)
   add_handler("sysDisconnectionEvent", function()
@@ -808,6 +797,7 @@ function EW.shutdown()
   local targets = {}
   for target in pairs(EW.ui.instances) do targets[#targets + 1] = target end
   for _, target in ipairs(targets) do destroy_mux_content(target) end
+  if EW.f2ce and type(EW.f2ce.shutdown) == "function" then EW.f2ce.shutdown() end
   update_ui()
 end
 
@@ -830,11 +820,10 @@ exchange_walker_shutdown = EW.shutdown
 fetch_and_process_data = EW.preview
 
 install_runtime_hooks()
-local mounted, mount_reason = EW.ui.install()
+local registered, registration_reason = EW.ui.install()
 update_ui()
-if not mounted and mount_reason then
-  notice("yellow", "F2CE Mux display is not mounted: " .. tostring(mount_reason)
-    .. ". Console commands remain available.")
+if not registered and registration_reason then
+  notice("yellow", "Mux content registration is unavailable: " .. tostring(registration_reason) .. ". Console commands remain available.")
 end
 notice("cyan", string.format(
   "v%s loaded; default is OFF. Use `ew on`, `ew preview`, then explicit `ew apply`.", EW.VERSION))

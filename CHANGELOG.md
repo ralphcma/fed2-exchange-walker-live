@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.2.0-live — 2026-09-01
+
+- Replaced the package-local F2CE/Muxlet implementation with a thin consumer
+  of independently installed Fed2 Module API 1.x.
+- Routed every stockpile minimum, maximum, and spread mutation through the
+  shared API's typed, capability-allow-listed command gateway.
+- Retained explicit Preview/Apply, room/owner validation, acknowledgement
+  sequencing, timeout, OFF/reconnect, and capture-completeness safety gates.
+- Removed private Mux pane/tab mounting. Exchange Walker now uses only public
+  content registration and leaves placement/activation to the user's workspace.
+- Added regressions for shared dependency loading, zero transmissions while
+  OFF, public-only Mux registration, capture/parser lease restoration, and exact
+  typed setting dispatch.
+
 ## 3.1.4-live — 2026-08-31
 
 - Corrected the 3.1.3 compatibility parser after live evidence showed that

@@ -1,10 +1,11 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.1.4.
--- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua
+-- Offline behavioral checks for Exchange Walker Live 3.2.0.
+-- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
 local runtime_source = assert(arg[2], "path to exchange-walker-live.lua is required")
+local shared_api_source = assert(arg[3], "path to fed2_module_api.lua is required")
 local passed, failed = 0, 0
 
 local function check(condition, message)
@@ -192,29 +193,28 @@ function f2t_po_capture_production(_, callback)
   return true
 end
 
+dofile(shared_api_source)
 ExchangeWalkerLive = {}
 dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.1.4-live", "version must be 3.1.4-live")
+check(EW.VERSION == "3.2.0-live", "version must be 3.2.0-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
   "public API contract must be available")
 check(rawget(_G, "FedHaulerLive") == nil, "standalone runtime must not require FedHaulerLive")
 check(type(mux_content.exchange_walker_live) == "table", "Mux content must register")
-check(pane._tabs[3] and pane._tabs[3].name == "Stockpiles",
-  "installation must automatically place the Stockpiles tab")
-local stockpile_tab = pane._tabs[3]
+check(#pane._tabs == 2, "registration must not mutate the user's Mux workspace")
+local stockpile_tab = pane:addTab("Stockpiles")
+Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
 check(type(EW.ui.instances[stockpile_tab]) == "table"
     and stockpile_tab._activeContent == "exchange_walker_live",
-  "automatic placement must build the Stockpiles display")
-check(pane._activeTabId == "who",
-  "automatic placement must restore the previously active F2CE tab")
-check(EW.ui.mount(false, false) == true and #pane._tabs == 3
-    and pane._activeTabId == "who",
-  "idempotent background mount must not duplicate or activate the tab")
+  "user-selected Content Library placement must build the display")
+pane._activeTabId = "who"
+check(EW.ui.mount(false, false) == false and #pane._tabs == 3,
+  "consumer must refuse private pane placement")
 
 EW.preview()
 EW.apply()
@@ -291,7 +291,7 @@ check(EW.plan.rows[5].target_min == 0 and EW.plan.rows[5].target_max == 0,
 check(EW.plan.rows[5].target_spread == 6, "negative producer must target 6 percent spread")
 check(pane._activeTabId == "who", "preview must preserve the active F2CE tab")
 EW.ui.show()
-check(pane._activeTabId == pane._tabs[3].id, "explicit display must reveal the Stockpiles tab")
+check(pane._activeTabId == "who", "display command must not privately activate a Mux tab")
 
 local action_start = #sent + 1
 check(EW.apply() == true and EW.applying == true, "explicit apply must start")
@@ -359,12 +359,15 @@ EW = ExchangeWalkerLive
 check(EW.enabled == false, "reload must return to OFF")
 local active_trigger_count = 0
 for _, trigger in pairs(triggers) do if trigger.active then active_trigger_count = active_trigger_count + 1 end end
-check(active_trigger_count == 3, "reload must leave exactly three active confirmation triggers")
+check(active_trigger_count == 4,
+  "reload must leave three Exchange Walker confirmations plus one shared death trigger")
 check(#pane._tabs == 3, "reload must not duplicate the Stockpiles Mux tab")
-check(type(EW.ui.instances[stockpile_tab]) == "table", "reload must rebuild saved Mux content")
-check(EW.ui.show() == true and pane._activeTabId == stockpile_tab.id,
-  "saved Content Library placement must remain usable after reload")
-check(EW.public.capabilities().capture.available == true, "API capability report must expose capture")
+Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
+check(type(EW.ui.instances[stockpile_tab]) == "table", "Mux workspace restore must rebuild saved content")
+check(EW.ui.show() == true and pane._activeTabId == "who",
+  "display registration must not activate a saved tab")
+local caps = EW.public.capabilities()
+check(caps.profiles.capture.available == true, "shared API capability report must expose capture")
 
 print(string.format("RESULT %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
