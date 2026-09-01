@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.2.1-live — 2026-09-01
+
+- Replaced one-console-line-per-setting apply confirmations with bounded
+  progress summaries every 10 confirmed changes and one exact final count.
+- Split Preview and Apply guidance into short, human-readable lines that do
+  not rely on Markdown formatting inside Mudlet.
+- Kept command ordering, exactly-once dispatch, acknowledgement matching,
+  timeouts, fail-closed behavior, and explicit Preview/Apply authority
+  unchanged.
+- Live acceptance on F2CE Tools 3.3.0-15829a0 and Fed2 Module API 1.1.2
+  validated a complete 89-change owned-exchange plan: every command was sent
+  once and confirmed, then Exchange Walker returned to OFF.
+
 ## 3.2.0-live — 2026-09-01
 
 - Replaced the package-local F2CE/Muxlet implementation with a thin consumer

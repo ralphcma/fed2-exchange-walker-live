@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.2.0.
+-- Offline behavioral checks for Exchange Walker Live 3.2.1.
 -- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
@@ -15,6 +15,7 @@ local function check(condition, message)
 end
 
 local sent = {}
+local output = {}
 local timers, timer_order = {}, {}
 local triggers, aliases, handlers = {}, {}, {}
 local next_id = 0
@@ -24,7 +25,7 @@ local function new_id()
   return next_id
 end
 
-function cecho(_) end
+function cecho(value) output[#output + 1] = tostring(value or "") end
 function send(command, _echo) sent[#sent + 1] = command end
 function tempTimer(delay, callback)
   local id = new_id()
@@ -199,7 +200,7 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.2.0-live", "version must be 3.2.0-live")
+check(EW.VERSION == "3.2.1-live", "version must be 3.2.1-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
@@ -280,6 +281,11 @@ run_next_timer()
 check(sent[#sent] == "display production", "preview must follow with display production")
 check(EW.plan ~= nil and #EW.plan.rows == 5, "complete capture must create a five-row plan")
 check(#EW.plan.actions == 11, "policy fixture must create eleven exact changes")
+local preview_text = table.concat(output, "\n")
+check(preview_text:find("Preview ready: 11 reviewed changes", 1, true) ~= nil,
+  "preview summary must be compact and human-readable")
+check(preview_text:find("Review Stockpiles; run 'ew apply' within 120 seconds.", 1, true) ~= nil,
+  "preview instructions must use a short dedicated line")
 check(EW.plan.rows[1].commodity == "Gold", "rows must sort by recomputed net production")
 check(EW.plan.rows[1].target_min == 10000 and EW.plan.rows[1].target_max == 20000,
   "stock at 10000 must target 10000/20000")
@@ -294,6 +300,7 @@ EW.ui.show()
 check(pane._activeTabId == "who", "display command must not privately activate a Mux tab")
 
 local action_start = #sent + 1
+local apply_history_start = #EW.ui.history + 1
 check(EW.apply() == true and EW.applying == true, "explicit apply must start")
 check(#sent == action_start, "apply must initially send exactly one mutation")
 check(sent[action_start] == "set stockpile min 10000 Gold", "reserve minimum command must be first")
@@ -327,6 +334,13 @@ for index, expected in ipairs(expected_actions) do
 end
 check(EW.applying == false, "apply must finish after all confirmations")
 check(EW.plan.applied == true, "applied plan must be single-use")
+local apply_text = table.concat(EW.ui.history, "\n", apply_history_start)
+check(apply_text:find("confirmed at", 1, true) == nil,
+  "successful confirmations must not spam one console line per setting")
+check(apply_text:find("Apply progress: 10/11 changes confirmed.", 1, true) ~= nil,
+  "long applies must report bounded progress")
+check(apply_text:find("Apply complete: 11/11 reviewed changes were sent once and confirmed.", 1, true) ~= nil,
+  "apply completion must summarize the exact confirmed count")
 local sent_after_apply = #sent
 EW.apply()
 check(#sent == sent_after_apply, "applied plan must never replay")

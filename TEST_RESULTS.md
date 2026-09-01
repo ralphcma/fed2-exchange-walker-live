@@ -1,29 +1,29 @@
-# Exchange Walker Live 3.1.4 Test Results
+# Exchange Walker Live 3.2.1 Test Results
 
-Date: 2026-08-31
+Date: 2026-09-01
 
 ## Source gates
 
 - Lua 5.1 syntax: `f2ce-api.lua`, `exchange-walker-live.lua`, and the offline
   test harness passed `luac5.1 -p`.
-- Offline source behavior: `RESULT 74 passed, 0 failed`.
+- Offline source behavior: `RESULT 78 passed, 0 failed`.
 - Git whitespace validation: passed.
 - Mudlet package XML parsed with root `MudletPackage`.
 
 ## Exact package gates
 
-Artifact: `dist/exchange-walker-live-3.1.4-live.mpackage`
+Artifact: `dist/exchange-walker-live-3.2.1-live.mpackage`
 
 SHA-256:
 
 ```text
-AC6FB0DDB0A70BA431992858FB836138E7311F10D33DC210F130F14360E50B4F
+98EA862D79C8223FAB0C1A5F0A34D27D8F565F56DE77AA0028B7910FE23004BD
 ```
 
 - Required members: 7/7.
 - Unexpected members: 0.
 - Packaged Lua syntax: passed.
-- Exact-package offline behavior: `RESULT 74 passed, 0 failed`.
+- Exact-package offline behavior: `RESULT 78 passed, 0 failed`.
 - Packaged/source Lua hashes: 2/2 exact matches.
 - XML, absolute-path, identity-leak, credential-string, and localhost checks:
   passed.
@@ -47,13 +47,32 @@ AC6FB0DDB0A70BA431992858FB836138E7311F10D33DC210F130F14360E50B4F
 - Server-valid amount-first spread command generation.
 - Explicit Apply, one outstanding command at a time, exact acknowledgement,
   mismatch stop, single-use plan, and no replay.
-- Automatic visible Stockpiles placement, restoration of the previously active
-  F2CE tab, background preview updates, explicit display, and idempotent reload.
+- Public Mux content registration, background preview updates, explicit
+  display, active-tab preservation, and idempotent reload.
+- Compact Preview instructions, bounded apply progress every 10 confirmations,
+  exact final counts, and suppression of per-setting success spam.
 - Reconnect reset to OFF and runtime-hook cleanup.
 - Standalone operation without FedHaulerLive.
 
-## Not performed
+## Authorized live acceptance
 
-No live-account login, server connection, navigation, or mutation command was
-performed. Initial live acceptance must begin OFF, stop after Preview for human
-review, and use explicit Apply only on a planet owned by the active character.
+- A new isolated Mudlet profile named `combined api testing` began with
+  FedHaulerLive and Exchange Walker OFF.
+- F2CE Tools 3.3.0-15829a0, Muxlet 2.3.0, Fed2 Module API 1.1.2,
+  FedHaulerLive 1.12.0, and Exchange Walker 3.2.0-live loaded together.
+- Live room, vitals, and ship GMCP were present. The shared API selected the
+  `f2ce-3.3` adapter and reported no navigation owner or lease.
+- Preview failed closed when the current planet was not owned. At an owned
+  exchange, the complete exchange/production capture produced 89 reviewed
+  changes. Explicit Apply sent every change once, matched every server
+  confirmation, and completed 89/89 before returning Exchange Walker to OFF.
+- The supplied F2CE map export (SHA-256
+  `68807EA1AE9D37CBC382C3CE613AEADB44233A2E5DE3C4790FCE8B5DD5FF0888`)
+  imported successfully with 5,761 rooms. F2CE rebuilt topology and synchronized
+  the live room after a recoverable pre-import backup was created.
+- The navigation API passed acquire/current-room-arrived/release with no
+  residual owner or lease. The imported map resolves both exchange and
+  shuttlepad flags in the current area, but both currently resolve to the same
+  room ID, so a distinct movement round trip was correctly skipped.
+- No futures trade, hauling workflow, credential capture, or forced eligibility
+  was used during acceptance.

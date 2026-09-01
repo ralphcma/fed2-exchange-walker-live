@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.2.0-live
+-- Version 3.2.1-live
 --
 -- Current-planet owner stockpile planner. Capture and public Mux registration
 -- are delegated through f2ce-api.lua so future F2CE changes stay isolated.
@@ -20,7 +20,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.2.0-live"
+EW.VERSION = "3.2.1-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -28,6 +28,7 @@ EW.busy = false
 EW.applying = false
 EW.plan = nil
 EW.plan_max_age_seconds = 120
+EW.apply_progress_interval = 10
 EW.command_spacing_seconds = 0.20
 EW.confirmation_timeout_seconds = 6
 EW.pending_confirmation = nil
@@ -452,8 +453,9 @@ local function display_plan(plan)
     notice("green", "Preview complete: no stockpile or spread changes are needed.")
   else
     notice("yellow", string.format(
-      "Preview complete: %d setting changes. Review the Stockpiles tab, then use `ew apply` within two minutes.",
-      #plan.actions))
+      "Preview ready: %d reviewed changes for %s.", #plan.actions, plan.planet))
+    notice("yellow", string.format(
+      "Review Stockpiles; run 'ew apply' within %d seconds.", EW.plan_max_age_seconds))
   end
 end
 
@@ -612,7 +614,8 @@ send_action = function(index)
     EW.applying, EW.apply_index, EW.pending_confirmation = false, nil, nil
     update_ui()
     notice("green", string.format(
-      "All %d reviewed changes were sent once and confirmed by the server.", #EW.plan.actions))
+      "Apply complete: %d/%d reviewed changes were sent once and confirmed.",
+      #EW.plan.actions, #EW.plan.actions))
     emit("apply.completed", { plan = EW.plan })
     return true
   end
@@ -658,8 +661,10 @@ function EW.apply()
   EW.plan.applied, EW.applying = true, true
   update_ui()
   notice("yellow", string.format(
-    "Applying %d reviewed changes to %s. Each command waits for confirmation and will not be retried.",
-    #EW.plan.actions, EW.plan.planet))
+    "Applying %d reviewed changes to %s.", #EW.plan.actions, EW.plan.planet))
+  notice("yellow", string.format(
+    "Commands are sent once; progress is summarized every %d confirmations.",
+    EW.apply_progress_interval))
   emit("apply.started", { plan = EW.plan })
   return send_action(1)
 end
@@ -681,8 +686,11 @@ local function confirmation(kind)
   cancel_timer("confirmation_timer")
   local completed_index = EW.apply_index
   EW.pending_confirmation = nil
-  notice("green", string.format("%s %s confirmed at %d%s.",
-    commodity, kind, pending.value, kind == "spread" and "%" or " tons"))
+  local total = #EW.plan.actions
+  if completed_index % EW.apply_progress_interval == 0 and completed_index < total then
+    notice("cyan", string.format(
+      "Apply progress: %d/%d changes confirmed.", completed_index, total))
+  end
   emit("apply.confirmed", { index = completed_index, action = pending.action })
   EW.apply_timer = tempTimer(EW.command_spacing_seconds, function()
     EW.apply_timer = nil
