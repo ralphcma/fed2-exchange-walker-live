@@ -12,10 +12,10 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $packageDirectory = Join-Path $repositoryRoot 'package'
 $distributionDirectory = Join-Path $repositoryRoot 'dist'
-$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.3.0-live.mpackage'
+$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.3.1-live.mpackage'
 $stageRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('exchange-walker-live-' + [guid]::NewGuid().ToString('N'))
 $verifyRoot = Join-Path $stageRoot 'verify'
-$zipPath = Join-Path $stageRoot 'exchange-walker-live-3.3.0-live.zip'
+$zipPath = Join-Path $stageRoot 'exchange-walker-live-3.3.1-live.zip'
 if ([string]::IsNullOrWhiteSpace($SharedApi)) {
     $projectRoot = Split-Path -Parent (Split-Path -Parent $repositoryRoot)
     $SharedApi = Join-Path $projectRoot 'shared\fed2-module-api\src\fed2_module_api.lua'
@@ -26,6 +26,7 @@ if (-not (Test-Path -LiteralPath $SharedApi -PathType Leaf)) {
 
 $sourcePaths = @(
     (Join-Path $repositoryRoot 'src\f2ce-api.lua'),
+    (Join-Path $repositoryRoot 'src\standalone-f2ce-api.lua'),
     (Join-Path $repositoryRoot 'src\exchange-walker-live.lua')
 )
 $archiveFiles = @(
@@ -41,14 +42,19 @@ foreach ($path in $sourcePaths + @((Join-Path $repositoryRoot 'tests\exchange-wa
     & $Luac -p $path
     if ($LASTEXITCODE -ne 0) { throw "Lua syntax failed: $path" }
 }
-& $Lua (Join-Path $repositoryRoot 'tests\exchange-walker-live-test.lua') @sourcePaths $SharedApi
+& $Lua (Join-Path $repositoryRoot 'tests\exchange-walker-live-test.lua') `
+    $sourcePaths[0] $sourcePaths[2] $SharedApi
 if ($LASTEXITCODE -ne 0) { throw 'source behavior tests failed' }
+& $Lua (Join-Path $repositoryRoot 'tests\exchange-walker-live-test.lua') `
+    $sourcePaths[0] $sourcePaths[2] $SharedApi `
+    (Join-Path $stageRoot 'standalone-source-test-profile') $sourcePaths[1]
+if ($LASTEXITCODE -ne 0) { throw 'standalone source behavior tests failed' }
 
 New-Item -ItemType Directory -Path $distributionDirectory, $stageRoot, $verifyRoot -Force | Out-Null
 try {
     Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zipPath -CompressionLevel Optimal
     Expand-Archive -LiteralPath $zipPath -DestinationPath $verifyRoot -Force
-    $required = @('config.lua', 'exchange-walker-live.xml', 'f2ce-api.lua',
+    $required = @('config.lua', 'exchange-walker-live.xml', 'f2ce-api.lua', 'standalone-f2ce-api.lua',
         'exchange-walker-live.lua', 'README.md', 'CHANGELOG.md', 'LICENSE')
     $members = @(Get-ChildItem -LiteralPath $verifyRoot -File | ForEach-Object Name)
     foreach ($member in $required) {
@@ -66,6 +72,12 @@ try {
         (Join-Path $verifyRoot 'exchange-walker-live.lua') $SharedApi `
         (Join-Path $stageRoot 'test-profile')
     if ($LASTEXITCODE -ne 0) { throw 'exact-package behavior tests failed' }
+    & $Lua (Join-Path $repositoryRoot 'tests\exchange-walker-live-test.lua') `
+        (Join-Path $verifyRoot 'f2ce-api.lua') `
+        (Join-Path $verifyRoot 'exchange-walker-live.lua') $SharedApi `
+        (Join-Path $stageRoot 'standalone-package-test-profile') `
+        (Join-Path $verifyRoot 'standalone-f2ce-api.lua')
+    if ($LASTEXITCODE -ne 0) { throw 'standalone exact-package behavior tests failed' }
     foreach ($source in $sourcePaths) {
         $packaged = Join-Path $verifyRoot (Split-Path -Leaf $source)
         if ((Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash -ne

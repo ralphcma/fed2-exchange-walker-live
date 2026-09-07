@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3.1-live — 2026-09-07
+
+- Made Fed2 Module API optional at runtime. Exchange Walker prefers the shared
+  API when available and otherwise loads a packaged private F2CE/Mux adapter.
+- Preserved the same default-OFF lifecycle, complete-capture validation,
+  reviewed-plan binding, exact command allow-list, and acknowledgement gates in
+  standalone mode.
+- Added shared-mode and standalone-mode source and exact-package regressions.
+
 ## 3.3.0-live — 2026-09-06
 
 - Added remote exchange management using F2CE's target-qualified exchange and

@@ -15,13 +15,14 @@ From the repository root:
 powershell -ExecutionPolicy Bypass -File .\scripts\build-package.ps1
 ```
 
-The result is `dist/exchange-walker-live-3.2.1-live.mpackage`.
+The result is `dist/exchange-walker-live-3.3.1-live.mpackage`.
 
 The archive contains:
 
 - `config.lua`
 - `exchange-walker-live.xml`
 - `f2ce-api.lua`
+- `standalone-f2ce-api.lua`
 - `exchange-walker-live.lua`
 - `README.md`
 - `CHANGELOG.md`
@@ -35,5 +36,6 @@ Using Lua 5.1:
 lua5.1 tests/exchange-walker-live-test.lua src/f2ce-api.lua src/exchange-walker-live.lua
 ```
 
-Validate both Lua source files with `luac -p`. The exact package should be
-extracted and the same test repeated against its two packaged Lua files.
+Validate all three Lua source files with `luac -p`. The build runs the behavior
+suite twice—once with the optional shared API and once with only the packaged
+standalone adapter—and repeats both modes against the exact package.

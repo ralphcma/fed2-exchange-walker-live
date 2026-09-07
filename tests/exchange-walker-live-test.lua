@@ -1,11 +1,13 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.3.0.
--- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
+-- Offline behavioral checks for Exchange Walker Live 3.3.1.
+-- Run shared mode: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
+-- Run standalone mode by passing standalone-f2ce-api.lua as argument five.
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
 local runtime_source = assert(arg[2], "path to exchange-walker-live.lua is required")
 local shared_api_source = assert(arg[3], "path to fed2_module_api.lua is required")
+local standalone_api_source = arg[5]
 local passed, failed = 0, 0
 
 local function check(condition, message)
@@ -224,13 +226,13 @@ function f2t_po_capture_production(planet, callback)
   return true
 end
 
-dofile(shared_api_source)
-ExchangeWalkerLive = {}
+if not standalone_api_source then dofile(shared_api_source) end
+ExchangeWalkerLive = { _standalone_adapter_path = standalone_api_source }
 dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.3.0-live", "version must be 3.3.0-live")
+check(EW.VERSION == "3.3.1-live", "version must be 3.3.1-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
@@ -492,15 +494,18 @@ EW.shutdown()
 for _, id in ipairs(old_trigger_ids) do
   check(triggers[id].active == false, "shutdown must remove old trigger " .. tostring(id))
 end
-ExchangeWalkerLive = {}
+ExchangeWalkerLive = { _standalone_adapter_path = standalone_api_source }
 dofile(adapter_source)
 dofile(runtime_source)
 EW = ExchangeWalkerLive
 check(EW.enabled == false, "reload must return to OFF")
 local active_trigger_count = 0
 for _, trigger in pairs(triggers) do if trigger.active then active_trigger_count = active_trigger_count + 1 end end
-check(active_trigger_count == 4,
-  "reload must leave three Exchange Walker confirmations plus one shared death trigger")
+local expected_trigger_count = standalone_api_source and 3 or 4
+check(active_trigger_count == expected_trigger_count,
+  standalone_api_source
+    and "standalone reload must leave only three Exchange Walker confirmation triggers"
+    or "reload must leave three Exchange Walker confirmations plus one shared death trigger")
 check(#pane._tabs == 3, "reload must not duplicate the Stockpiles Mux tab")
 Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
 check(type(EW.ui.instances[stockpile_tab]) == "table", "Mux workspace restore must rebuild saved content")

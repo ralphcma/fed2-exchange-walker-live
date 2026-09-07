@@ -8,12 +8,6 @@
 local EW = rawget(_G, "ExchangeWalkerLive")
 if type(EW) ~= "table" then return end
 
-local shared = rawget(_G, "Fed2ModuleAPI")
-if type(shared) ~= "table" or shared.CONTRACT ~= "Fed2ModuleAPI/1.0"
-    or type(shared.registerClient) ~= "function" then
-  error("Fed2 Module API 1.x is missing; install/reload fed2-module-api before Exchange Walker Live")
-end
-
 local function version_at_least(actual, minimum)
   local a, b, c = tostring(actual or ""):match("^(%d+)%.(%d+)%.(%d+)")
   local x, y, z = tostring(minimum or ""):match("^(%d+)%.(%d+)%.(%d+)")
@@ -24,8 +18,42 @@ local function version_at_least(actual, minimum)
   return c >= z
 end
 
-if not version_at_least(shared.VERSION, "1.2.4") then
-  error("Fed2 Module API 1.2.4 or newer is required for remote exchange management")
+local function load_standalone()
+  local fallback_path = EW._standalone_adapter_path
+  if not fallback_path and type(getMudletHomeDir) == "function" then
+    local ok_home, home = pcall(getMudletHomeDir)
+    if ok_home and type(home) == "string" and home ~= "" then
+      fallback_path = home .. "/exchange-walker-live/standalone-f2ce-api.lua"
+    end
+  end
+  if not fallback_path then error("standalone F2CE adapter path is unavailable") end
+  local fallback_ok, fallback_reason = pcall(dofile, fallback_path)
+  if not fallback_ok or type(EW.f2ce) ~= "table" then
+    error("standalone F2CE adapter could not load: " .. tostring(fallback_reason))
+  end
+end
+
+local function installed_shared_api()
+  local shared = rawget(_G, "Fed2ModuleAPI")
+  if type(shared) == "table" then return shared end
+  -- Package execution order is not stable across Mudlet profile rebuilds.
+  -- Bootstrap only the independently installed shared API's canonical file;
+  -- the contract/version checks below still reject missing or stale installs.
+  if type(getMudletHomeDir) == "function" and type(dofile) == "function" then
+    local ok_home, home = pcall(getMudletHomeDir)
+    if ok_home and type(home) == "string" and home ~= "" then
+      pcall(dofile, home .. "/fed2-module-api/src/fed2_module_api.lua")
+    end
+  end
+  return rawget(_G, "Fed2ModuleAPI")
+end
+
+local shared = installed_shared_api()
+if type(shared) ~= "table" or shared.CONTRACT ~= "Fed2ModuleAPI/1.0"
+    or type(shared.registerClient) ~= "function"
+    or not version_at_least(shared.VERSION, "1.2.4") then
+  load_standalone()
+  return
 end
 
 local function authorize(operation, payload)

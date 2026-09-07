@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.3.0-live
+-- Version 3.3.1-live
 --
 -- Configurable local/remote owner stockpile planner. Capture, typed remote
 -- mutations, and Mux registration/placement are delegated through f2ce-api.lua
@@ -21,7 +21,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.3.0-live"
+EW.VERSION = "3.3.1-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -1075,7 +1075,7 @@ send_action = function(index)
   local dispatched, dispatch_reason = EW.f2ce.commands.stockpile(
     action.kind, action.commodity, action.value, action.planet)
   if not dispatched then
-    return stop_apply("Shared API blocked the reviewed setting change: " .. tostring(dispatch_reason))
+    return stop_apply("F2CE adapter blocked the reviewed setting change: " .. tostring(dispatch_reason))
   end
   emit("apply.command_sent", { index = index, action = action })
   EW.confirmation_timer = tempTimer(EW.confirmation_timeout_seconds, function()
@@ -1373,7 +1373,7 @@ local function api_status()
   local caps = EW.f2ce.core.capabilities()
   local capture = caps.profiles and caps.profiles.capture or { available = false }
   notice("cyan", string.format(
-    "API %s | shared API %s | F2CE %s | capture %s | public Mux registration %s.",
+    "API %s | active adapter %s | F2CE %s | capture %s | public Mux registration %s.",
     EW.API_CONTRACT, tostring(caps.api_version), tostring(caps.f2ce_version or "missing"),
     capture.available and "available" or "missing",
     caps.display.registration and "available" or "missing"))
