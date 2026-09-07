@@ -1,4 +1,4 @@
-# Exchange Walker Live 3.3.1 Test Results
+# Exchange Walker Live 3.3.2 Test Results
 
 Date: 2026-09-07
 
@@ -6,26 +6,26 @@ Date: 2026-09-07
 
 - Lua 5.1 syntax: `f2ce-api.lua`, `exchange-walker-live.lua`, and the offline
   test harness passed `luac5.1 -p`.
-- Offline source behavior with shared API: `RESULT 136 passed, 0 failed`.
-- Offline source behavior without shared API: `RESULT 136 passed, 0 failed`.
+- Offline source behavior with shared API: `RESULT 148 passed, 0 failed`.
+- Offline source behavior without shared API: `RESULT 148 passed, 0 failed`.
 - Shared Fed2 Module API 1.2.4 behavior: passed.
 - FedHaulerLive cross-package regression: `RESULT 158 passed, 0 failed`.
 - Mudlet package XML parsed successfully.
 
 ## Exact package gates
 
-Artifact: `dist/exchange-walker-live-3.3.1-live.mpackage`
+Artifact: `dist/exchange-walker-live-3.3.2-live.mpackage`
 
 SHA-256:
 
 ```text
-76aefc6f9460a64e42f62b494db5dea40d84ea4569765ea2d5856107323093b8
+6e54de5c6b5df4e7796580f326950b8aca8361df7cd96e62a40b960e34406072
 ```
 
 - Required members: 8/8; unexpected members: 0.
 - Packaged Lua syntax: passed.
-- Exact-package behavior with shared API: `RESULT 136 passed, 0 failed`.
-- Exact-package behavior without shared API: `RESULT 136 passed, 0 failed`.
+- Exact-package behavior with shared API: `RESULT 148 passed, 0 failed`.
+- Exact-package behavior without shared API: `RESULT 148 passed, 0 failed`.
 - Packaged/source Lua hashes: 3/3 exact matches.
 - XML, absolute-path, identity, credential, connection-address, OneDrive, and
   localhost leak scans: passed.
@@ -72,7 +72,7 @@ Its source and exact-package API suites both passed.
 
 ## Live acceptance status
 
-No gameplay connection or command was used for this 3.3.1 build. A local Mudlet
+No gameplay connection or command was used for this 3.3.2 build. A local Mudlet
 acceptance should install the exact Exchange Walker artifact above, optionally
 with the shared API, begin OFF, verify safe Mux placement, preview one known owned remote planet,
 compare the complete plan with live output, and only then explicitly Apply.

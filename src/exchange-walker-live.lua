@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.3.1-live
+-- Version 3.3.2-live
 --
 -- Configurable local/remote owner stockpile planner. Capture, typed remote
 -- mutations, and Mux registration/placement are delegated through f2ce-api.lua
@@ -21,7 +21,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.3.1-live"
+EW.VERSION = "3.3.2-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -404,7 +404,18 @@ end
 
 local function set_command_text(command, value)
   if not command then return end
-  if type(command.setText) == "function" then pcall(command.setText, command, tostring(value or "")) end
+  local text = tostring(value or "")
+  -- Geyser.CommandLine exposes print(), not setText().  Keep the latter only
+  -- as a compatibility fallback for nonstandard wrappers.
+  if type(command.print) == "function" then
+    local ok = pcall(command.print, command, text)
+    if ok then return end
+  end
+  if type(printCmdLine) == "function" and command.name then
+    local ok = pcall(printCmdLine, command.name, text)
+    if ok then return end
+  end
+  if type(command.setText) == "function" then pcall(command.setText, command, text) end
 end
 
 local function get_command_text(command)

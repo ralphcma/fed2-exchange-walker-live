@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.2-live — 2026-09-07
+
+- Prefill every Mux policy field through the real Geyser CommandLine `print`
+  interface. The previous `setText` call was unsupported and silently left all
+  defaults blank in Mudlet.
+- Replace the permissive UI test double with Mudlet's actual CommandLine method
+  shape and verify all twelve built-in defaults are visibly populated.
+
 ## 3.3.1-live — 2026-09-07
 
 - Made Fed2 Module API optional at runtime. Exchange Walker prefers the shared

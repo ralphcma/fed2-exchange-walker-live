@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.3.1.
+-- Offline behavioral checks for Exchange Walker Live 3.3.2.
 -- Run shared mode: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
 -- Run standalone mode by passing standalone-f2ce-api.lua as argument five.
 
@@ -94,7 +94,7 @@ local function new_widget(config)
   function widget:setColor(...) self.color = { ... } end
   function widget:enableAutoWrap() self.auto_wrap = true end
   function widget:clear() self.lines = {} end
-  function widget:setText(value) self.text = tostring(value or "") end
+  function widget:print(value) self.text = tostring(value or "") end
   function widget:getText() return self.text end
   function widget:setAction(callback) self.action = callback end
   return widget
@@ -232,7 +232,7 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.3.1-live", "version must be 3.3.1-live")
+check(EW.VERSION == "3.3.2-live", "version must be 3.3.2-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
@@ -248,6 +248,18 @@ check(pane_16._activeContent == "exchange_walker_live"
   "default placement must use the first existing empty pane at or above 15")
 for _, command in pairs(command_lines) do
   check(type(command.action) == "function", "Mux policy fields must suppress Enter-to-game submission")
+end
+local expected_policy_defaults = {
+  interval_minutes = 30,
+  deficit_spread = 6, deficit_min = 0, deficit_max = 0,
+  breakeven_spread = 6, breakeven_min = 0, breakeven_max = 0,
+  surplus_spread = 40, growth_buffer = 1000,
+  reserve_trigger = 10000, reserve_min = 10000, reserve_max = 20000,
+}
+for key, expected in pairs(expected_policy_defaults) do
+  local field = EW.ui.instances[pane_16].fields[key]
+  check(field and field.text == tostring(expected),
+    key .. " must be prefilled through the real Geyser.CommandLine print interface")
 end
 local stockpile_tab = pane:addTab("Stockpiles")
 Mux._applyContent(stockpile_tab, "exchange_walker_live", true)

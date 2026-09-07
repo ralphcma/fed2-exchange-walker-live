@@ -12,10 +12,10 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $packageDirectory = Join-Path $repositoryRoot 'package'
 $distributionDirectory = Join-Path $repositoryRoot 'dist'
-$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.3.1-live.mpackage'
+$destinationPath = Join-Path $distributionDirectory 'exchange-walker-live-3.3.2-live.mpackage'
 $stageRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('exchange-walker-live-' + [guid]::NewGuid().ToString('N'))
 $verifyRoot = Join-Path $stageRoot 'verify'
-$zipPath = Join-Path $stageRoot 'exchange-walker-live-3.3.1-live.zip'
+$zipPath = Join-Path $stageRoot 'exchange-walker-live-3.3.2-live.zip'
 if ([string]::IsNullOrWhiteSpace($SharedApi)) {
     $projectRoot = Split-Path -Parent (Split-Path -Parent $repositoryRoot)
     $SharedApi = Join-Path $projectRoot 'shared\fed2-module-api\src\fed2_module_api.lua'
