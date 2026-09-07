@@ -12,17 +12,13 @@ if type(previous) == "table" then
   if type(previous.shutdown) == "function" then
     pcall(previous.shutdown)
   else
-    for _, field in ipairs({ "transition_timer", "apply_timer", "confirmation_timer" }) do
+    for _, field in ipairs({ "transition_timer", "apply_timer", "confirmation_timer", "scheduler_timer", "ui_placement_timer" }) do
       if previous[field] and type(killTimer) == "function" then pcall(killTimer, previous[field]) end
     end
     for _, field in ipairs({ "min_confirmation_trigger", "max_confirmation_trigger", "spread_confirmation_trigger" }) do
       if previous[field] and type(killTrigger) == "function" then pcall(killTrigger, previous[field]) end
     end
     if previous.alias and type(killAlias) == "function" then pcall(killAlias, previous.alias) end
-    if previous.button then
-      if type(previous.button.hide) == "function" then pcall(previous.button.hide, previous.button) end
-      if type(previous.button.delete) == "function" then pcall(previous.button.delete, previous.button) end
-    end
   end
 end
 

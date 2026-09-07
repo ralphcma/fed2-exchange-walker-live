@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.2.1.
+-- Offline behavioral checks for Exchange Walker Live 3.3.0.
 -- Run: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
 
 local adapter_source = assert(arg[1], "path to f2ce-api.lua is required")
@@ -19,6 +19,12 @@ local output = {}
 local timers, timer_order = {}, {}
 local triggers, aliases, handlers = {}, {}, {}
 local next_id = 0
+local settings_root = arg[4] or "build/exchange-walker-live-test-profile"
+os.remove(settings_root .. "/exchange-walker-live-settings.ini")
+os.remove(settings_root .. "/exchange-walker-live-settings.ini.tmp")
+assert(os.execute('if not exist "' .. settings_root .. '" mkdir "' .. settings_root .. '"') == 0,
+  "temporary settings directory must be created")
+function getMudletHomeDir() return settings_root end
 
 local function new_id()
   next_id = next_id + 1
@@ -65,14 +71,16 @@ function registerAnonymousEventHandler(name, callback)
   return id
 end
 function killAnonymousEventHandler(id) if handlers[id] then handlers[id].active = false end end
-local function raise_event(name)
+local function raise_event(name, ...)
   for _, handler in pairs(handlers) do
-    if handler.active and handler.name == name then handler.callback() end
+    if handler.active and handler.name == name then handler.callback(name, ...) end
   end
 end
 
-local function new_widget()
-  local widget = { lines = {}, visible = false, deleted = false }
+local command_lines = {}
+local function new_widget(config)
+  local widget = { lines = {}, visible = false, deleted = false,
+    name = config and config.name or nil, text = "" }
   function widget:setStyleSheet(value) self.style = value end
   function widget:setClickCallback(callback) self.callback = callback end
   function widget:setToolTip(value) self.tooltip = value end
@@ -84,13 +92,25 @@ local function new_widget()
   function widget:setColor(...) self.color = { ... } end
   function widget:enableAutoWrap() self.auto_wrap = true end
   function widget:clear() self.lines = {} end
+  function widget:setText(value) self.text = tostring(value or "") end
+  function widget:getText() return self.text end
+  function widget:setAction(callback) self.action = callback end
   return widget
 end
 
 Geyser = {
-  Label = { new = function(_, _parent) return new_widget() end },
-  MiniConsole = { new = function(_, _parent) return new_widget() end },
+  Label = { new = function(_, config, _parent) return new_widget(config) end },
+  MiniConsole = { new = function(_, config, _parent) return new_widget(config) end },
+  CommandLine = { new = function(_, config, _parent)
+    local widget = new_widget(config)
+    command_lines[widget.name] = widget
+    return widget
+  end },
 }
+function getCmdLine(name)
+  local widget = command_lines[name]
+  return widget and widget.text or ""
+end
 
 local mux_content = {}
 local pane = {
@@ -101,6 +121,10 @@ local pane = {
   },
   _hiddenTabs = {},
 }
+local pane_15 = { id = "pane_15", name = "Reserved", _activeContent = "foreign_content",
+  content = {}, contentBg = new_widget() }
+local pane_16 = { id = "pane_16", name = "Modules", _activeContent = nil,
+  content = {}, contentBg = new_widget() }
 function pane:addTab(name, _position)
   local target = {
     id = "tab_" .. tostring(#self._tabs + 1), name = name, pane = self,
@@ -112,9 +136,13 @@ function pane:addTab(name, _position)
 end
 function pane:activateTab(id) self._activeTabId = id end
 
-Mux = {}
+Mux = { _content = mux_content }
 function Mux.registerContent(content_id, definition) mux_content[content_id] = definition end
-function Mux.getPane(id) if id == "pane_2" then return pane end end
+function Mux.getPane(id)
+  if id == "pane_2" then return pane end
+  if id == "pane_15" then return pane_15 end
+  if id == "pane_16" then return pane_16 end
+end
 function Mux._applyContent(target, content_id, _force)
   target._activeContent = content_id
   mux_content[content_id].apply(target)
@@ -164,6 +192,8 @@ local production_rows = {
 
 f2t_po = { phase = "idle", callback = nil }
 local reset_calls = 0
+function f2t_po_capture_reset_timer() end
+function f2t_po_capture_timer_expired() return false end
 function f2t_po_reset()
   reset_calls = reset_calls + 1
   f2t_po.phase, f2t_po.callback = "idle", nil
@@ -172,9 +202,9 @@ function f2t_po_parse_exchange_buffer(_buffer)
   return {} -- Reproduces the incomplete F2CE 3.2.5 wrapped-line parser.
 end
 local original_exchange_parser = f2t_po_parse_exchange_buffer
-function f2t_po_capture_exchange(_, callback)
+function f2t_po_capture_exchange(planet, callback)
   if f2t_po.phase ~= "idle" then return false end
-  send("display exchange", false)
+  send("display exchange" .. (planet and (" " .. planet) or ""), false)
   f2t_po.phase, f2t_po.callback = "capturing_exchange", callback
   f2t_po_reset()
   local data = exchange_rows
@@ -185,9 +215,9 @@ function f2t_po_capture_exchange(_, callback)
   callback(data)
   return true
 end
-function f2t_po_capture_production(_, callback)
+function f2t_po_capture_production(planet, callback)
   if f2t_po.phase ~= "idle" then return false end
-  send("display production", false)
+  send(planet and ("display production all " .. planet) or "display production", false)
   f2t_po.phase, f2t_po.callback = "capturing_production", callback
   f2t_po_reset()
   callback(production_rows)
@@ -200,22 +230,31 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.2.1-live", "version must be 3.2.1-live")
+check(EW.VERSION == "3.3.0-live", "version must be 3.3.0-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
   "public API contract must be available")
 check(rawget(_G, "FedHaulerLive") == nil, "standalone runtime must not require FedHaulerLive")
 check(type(mux_content.exchange_walker_live) == "table", "Mux content must register")
-check(#pane._tabs == 2, "registration must not mutate the user's Mux workspace")
+check(#pane._tabs == 2, "registration must not mutate the user's existing tabbed Mux workspace")
+run_next_timer()
+check(pane_15._activeContent == "foreign_content",
+  "default placement must not overwrite occupied pane 15")
+check(pane_16._activeContent == "exchange_walker_live"
+    and type(EW.ui.instances[pane_16]) == "table",
+  "default placement must use the first existing empty pane at or above 15")
+for _, command in pairs(command_lines) do
+  check(type(command.action) == "function", "Mux policy fields must suppress Enter-to-game submission")
+end
 local stockpile_tab = pane:addTab("Stockpiles")
 Mux._applyContent(stockpile_tab, "exchange_walker_live", true)
 check(type(EW.ui.instances[stockpile_tab]) == "table"
     and stockpile_tab._activeContent == "exchange_walker_live",
   "user-selected Content Library placement must build the display")
 pane._activeTabId = "who"
-check(EW.ui.mount(false, false) == false and #pane._tabs == 3,
-  "consumer must refuse private pane placement")
+check(EW.ui.mount(false, false) == true and #pane._tabs == 3,
+  "mount must reuse existing safe placement without mutating workspace topology")
 
 EW.preview()
 EW.apply()
@@ -319,7 +358,7 @@ while EW.applying do
   local pending = EW.pending_confirmation
   check(type(pending) == "table", "every dispatched mutation must await confirmation")
   if not pending then break end
-  matches = { "confirmation", pending.action.commodity, tostring(pending.value) }
+  matches = { "confirmation", pending.action.commodity, EW.plan.planet, tostring(pending.value) }
   confirmation_callback(pending.action.kind)()
   run_next_timer()
 end
@@ -345,12 +384,99 @@ local sent_after_apply = #sent
 EW.apply()
 check(#sent == sent_after_apply, "applied plan must never replay")
 
+local function row_named(name)
+  for _, row in ipairs(EW.plan and EW.plan.rows or {}) do
+    if row.commodity == name then return row end
+  end
+end
+
+check(EW.settings.configure({
+  deficit_spread = 8, deficit_min = 100, deficit_max = 200,
+  breakeven_spread = 9, breakeven_min = 300, breakeven_max = 400,
+  surplus_spread = 35, growth_buffer = 500, reserve_trigger = 9000,
+  reserve_min = 8000, reserve_max = 18000,
+}, false) == true, "all three production-class policies must be configurable")
+EW.preview()
+run_next_timer()
+local deficit, breakeven, growing, reserve = row_named("Meats"), row_named("Clinics"),
+  row_named("Alloys"), row_named("Gold")
+check(deficit and deficit.target_spread == 8 and deficit.target_min == 100 and deficit.target_max == 200,
+  "deficit spread and stock limits must use the independent deficit policy")
+check(breakeven and breakeven.target_spread == 9
+    and breakeven.target_min == 300 and breakeven.target_max == 400,
+  "breakeven spread and stock limits must use the independent breakeven policy")
+check(growing and growing.target_spread == 35 and growing.target_min == 500 and growing.target_max == 1000,
+  "surplus below trigger must use configurable spread and growth buffer")
+check(reserve and reserve.target_spread == 35 and reserve.target_min == 8000 and reserve.target_max == 18000,
+  "surplus reserve trigger and 10k/20k replacement limits must be configurable")
+
+check(EW.settings.configure({ excluded_commodities = { "Gold", "NanoFabrics" } }, false) == true,
+  "commodity exclusions must be configurable")
+EW.preview()
+run_next_timer()
+check(#EW.plan.rows == 3 and row_named("Gold") == nil and row_named("NanoFabrics") == nil,
+  "excluded commodities must remain validated but be omitted from planning")
+for _, action in ipairs(EW.plan.actions) do
+  check(action.commodity ~= "Gold" and action.commodity ~= "NanoFabrics",
+    "excluded commodities must never produce a mutation action")
+end
+
+check(EW.settings.configure({
+  deficit_spread = 6, deficit_min = 0, deficit_max = 0,
+  breakeven_spread = 6, breakeven_min = 0, breakeven_max = 0,
+  surplus_spread = 40, growth_buffer = 1000, reserve_trigger = 10000,
+  reserve_min = 10000, reserve_max = 20000, excluded_commodities = {},
+  targets = { "Tempest" }, interval_minutes = 30,
+}, false) == true, "default policy and remote target fixture must restore")
+
+local remote_start = #sent + 1
+check(EW.preview("Tempest") == true, "manual remote preview must start")
+check(sent[remote_start] == "display exchange Tempest",
+  "remote preview must request the target exchange explicitly")
+run_next_timer()
+check(sent[remote_start + 1] == "display production all Tempest",
+  "remote preview must request all target production explicitly")
+check(EW.plan and EW.plan.remote == true and EW.plan.planet == "Tempest",
+  "remote capture must create a planet-bound plan independent of current room")
+check(EW.apply() == true and sent[remote_start + 2] == "set stockpile min 10000 Gold Tempest",
+  "remote apply must append the exact reviewed planet to every mutation")
+local remote_pending = EW.pending_confirmation
+matches = { "confirmation", remote_pending.action.commodity, "Wrong Planet", tostring(remote_pending.value) }
+confirmation_callback(remote_pending.action.kind)()
+check(EW.applying == true and EW.pending_confirmation == remote_pending,
+  "a confirmation from a different planet must not advance remote apply")
+EW.cancel("remote acknowledgement identity test complete")
+
+check(EW.on() == true, "walker must remain armable after manual cancellation")
+check(EW.autoOn() == true and EW.scheduler.enabled and EW.scheduler.running,
+  "scheduled remote management must require explicit enable and start immediately")
+check(sent[#sent] == "display exchange Tempest",
+  "scheduled cycle must begin with exact remote exchange capture")
+run_next_timer()
+check(sent[#sent] == "set stockpile min 10000 Gold Tempest",
+  "complete scheduled capture must begin its reviewed remote apply")
+while EW.applying do
+  local scheduled_pending = EW.pending_confirmation
+  check(type(scheduled_pending) == "table", "scheduled mutation must await exact confirmation")
+  if not scheduled_pending then break end
+  matches = { "confirmation", scheduled_pending.action.commodity, "Tempest",
+    tostring(scheduled_pending.value) }
+  confirmation_callback(scheduled_pending.action.kind)()
+  run_next_timer()
+end
+check(EW.scheduler.enabled == true and EW.scheduler.running == false
+    and EW.scheduler.completed == 1,
+  "successful scheduled target cycle must wait for the next bounded interval")
+check(EW.scheduler_timer ~= nil and timers[EW.scheduler_timer].delay == 1800,
+  "default scheduled interval must be 30 minutes")
+EW.autoOff()
+
 EW.preview()
 run_next_timer()
 local mismatch_start = #sent
 EW.apply()
 local pending = EW.pending_confirmation
-matches = { "confirmation", pending.action.commodity, tostring(pending.value + 1) }
+matches = { "confirmation", pending.action.commodity, EW.plan.planet, tostring(pending.value + 1) }
 confirmation_callback(pending.action.kind)()
 check(EW.applying == false, "mismatched acknowledgement must stop apply")
 check(#sent == mismatch_start + 1, "mismatch must prevent later mutation commands")
@@ -382,6 +508,25 @@ check(EW.ui.show() == true and pane._activeTabId == "who",
   "display registration must not activate a saved tab")
 local caps = EW.public.capabilities()
 check(caps.profiles.capture.available == true, "shared API capability report must expose capture")
+
+check(EW.settings.configure({ interval_minutes = 45,
+  excluded_commodities = { "Gold" }, targets = { "Tempest" } }) == true,
+  "validated settings must persist to profile-local storage")
+EW.settings.interval_minutes, EW.settings.excluded_commodities, EW.settings.targets = 30, {}, {}
+check(EW.settings.load() == true and EW.settings.interval_minutes == 45
+    and EW.settings.excluded_commodities[1] == "Gold"
+    and EW.settings.targets[1] == "Tempest",
+  "saved timer, targets, and exclusions must survive a package reload")
+local settings_file = settings_root .. "/exchange-walker-live-settings.ini"
+local stored = io.open(settings_file, "r")
+check(stored ~= nil, "settings file must exist before uninstall")
+if stored then stored:close() end
+raise_event("sysUninstallPackage", "exchange-walker-live")
+local removed = io.open(settings_file, "r")
+check(removed == nil, "uninstall must remove Exchange Walker settings")
+if removed then removed:close() end
+os.remove(settings_file .. ".tmp")
+os.execute('rmdir "' .. settings_root .. '"')
 
 print(string.format("RESULT %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

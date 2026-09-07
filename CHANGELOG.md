@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.3.0-live — 2026-09-06
+
+- Added remote exchange management using F2CE's target-qualified exchange and
+  production captures plus the server's planet-qualified stockpile/spread
+  commands. No navigation is required.
+- Added separately configurable spread and stock-limit policies for deficit,
+  breakeven, and surplus producers. Surplus growth buffer, reserve trigger,
+  reserve minimum, and reserve maximum are all editable.
+- Added persisted commodity exclusions. Excluded rows remain subject to
+  complete-capture validation but can never generate a mutation command.
+- Added an explicit-OFF scheduled controller with a configurable 30-minute
+  default interval. It processes a saved remote target list sequentially,
+  prevents overlapping cycles, and turns OFF on any capture, validation,
+  authorization, acknowledgement, or timeout failure.
+- Added editable policy, target, and exclusion fields to the Mux workspace
+  content, plus Auto and Run Now controls.
+- Added safe default placement into the first existing empty Mux pane from
+  pane 15 through pane 32. Occupied panes are never replaced and no workspace
+  pane or tab is created.
+- Added settings-file migration from the prior positive/nonpositive spread
+  schema and removal of package-owned settings on uninstall.
+- Upgraded the shared dependency to Fed2 Module API 1.2.4 for typed remote
+  production capture, remote mutations, and bounded safe Mux placement.
+- Expanded offline coverage for independent production classes, configurable
+  reserve policy, exclusions, remote commands, planet-specific confirmation,
+  scheduled execution, and 30-minute timer behavior.
+
 ## 3.2.1-live — 2026-09-01
 
 - Replaced one-console-line-per-setting apply confirmations with bounded

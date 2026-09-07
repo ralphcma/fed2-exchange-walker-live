@@ -2,10 +2,11 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.2.1-live
+-- Version 3.3.0-live
 --
--- Current-planet owner stockpile planner. Capture and public Mux registration
--- are delegated through f2ce-api.lua so future F2CE changes stay isolated.
+-- Configurable local/remote owner stockpile planner. Capture, typed remote
+-- mutations, and Mux registration/placement are delegated through f2ce-api.lua
+-- so future F2CE changes stay isolated.
 -- Loading and reconnecting always return to OFF. Preview sends only the F2CE
 -- display commands; apply is a separate explicit action and advances only after
 -- each expected server acknowledgement.
@@ -20,7 +21,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.2.1-live"
+EW.VERSION = "3.3.0-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -33,15 +34,40 @@ EW.command_spacing_seconds = 0.20
 EW.confirmation_timeout_seconds = 6
 EW.pending_confirmation = nil
 EW.apply_index = nil
+EW.capture_target = nil
+EW.operation_mode = "manual"
 EW.runtime = { trigger_ids = {}, handler_ids = {}, alias_id = nil }
 EW.events = { subscribers = {}, next_id = 0 }
+EW.settings = {
+  interval_minutes = 30,
+  surplus_spread = 40,
+  breakeven_spread = 6,
+  deficit_spread = 6,
+  deficit_min = 0,
+  deficit_max = 0,
+  breakeven_min = 0,
+  breakeven_max = 0,
+  growth_buffer = 1000,
+  reserve_trigger = 10000,
+  reserve_min = 10000,
+  reserve_max = 20000,
+  targets = {},
+  excluded_commodities = {},
+}
+EW.scheduler = {
+  enabled = false, running = false, timer_id = nil,
+  targets = {}, index = 0, completed = 0, failures = 0,
+}
 EW.ui = {
   content_id = "exchange_walker_live",
-  preferred_pane_id = "pane_2",
-  preferred_pane_name = "LeftTop",
-  preferred_tab_name = "Stockpiles",
+  preferred_pane_id = "pane_15",
+  preferred_pane_start = 15,
+  preferred_pane_end = 32,
   registered = false,
   registered_target = nil,
+  placement_timer = nil,
+  placement_attempt = 0,
+  placement_attempt_limit = 20,
   instances = {},
   instance_counter = 0,
   history = {},
@@ -59,6 +85,185 @@ local function finite_number(value)
     return nil
   end
   return number
+end
+
+local function trimmed(value)
+  return tostring(value or ""):match("^%s*(.-)%s*$"):gsub("%s+", " ")
+end
+
+local function safe_planet(value)
+  local text = trimmed(value)
+  if text == "" or #text > 80 or text:find("[%c;|]")
+      or not text:match("^[%w][%w%s%'%-%.]*$") then return nil end
+  return text
+end
+
+local function copy_targets(values)
+  local result, seen = {}, {}
+  for _, value in ipairs(type(values) == "table" and values or {}) do
+    local planet = safe_planet(value)
+    local key = planet and normalized(planet) or nil
+    if key and not seen[key] then seen[key], result[#result + 1] = true, planet end
+  end
+  table.sort(result, function(left, right) return normalized(left) < normalized(right) end)
+  return result
+end
+
+local function copy_exclusions(values)
+  local result, seen = {}, {}
+  for _, value in ipairs(type(values) == "table" and values or {}) do
+    local commodity = safe_planet(value)
+    local key = commodity and normalized(commodity) or nil
+    if key and not seen[key] then seen[key], result[#result + 1] = true, commodity end
+  end
+  table.sort(result, function(left, right) return normalized(left) < normalized(right) end)
+  return result
+end
+
+local setting_keys = {
+  "interval_minutes", "surplus_spread", "breakeven_spread", "deficit_spread",
+  "deficit_min", "deficit_max", "breakeven_min", "breakeven_max",
+  "growth_buffer", "reserve_trigger", "reserve_min", "reserve_max",
+}
+
+local function validate_settings(candidate)
+  local clean = { targets = copy_targets(candidate.targets),
+    excluded_commodities = copy_exclusions(candidate.excluded_commodities) }
+  for _, key in ipairs(setting_keys) do
+    local value = finite_number(candidate[key])
+    if value == nil or value ~= math.floor(value) then return nil, key .. " must be an integer" end
+    clean[key] = value
+  end
+  if clean.interval_minutes < 5 or clean.interval_minutes > 1440 then
+    return nil, "interval_minutes must be between 5 and 1440"
+  end
+  if clean.surplus_spread < 6 or clean.surplus_spread > 40
+      or clean.breakeven_spread < 6 or clean.breakeven_spread > 40
+      or clean.deficit_spread < 6 or clean.deficit_spread > 40 then
+    return nil, "deficit, breakeven, and surplus spreads must be between 6 and 40"
+  end
+  if clean.deficit_min < 0 or clean.deficit_min > 10000 or clean.deficit_max < clean.deficit_min
+      or clean.deficit_max > 20000 then
+    return nil, "deficit limits must satisfy 0 <= min <= 10000 and min <= max <= 20000"
+  end
+  if clean.breakeven_min < 0 or clean.breakeven_min > 10000
+      or clean.breakeven_max < clean.breakeven_min
+      or clean.breakeven_max > 20000 then
+    return nil, "breakeven limits must satisfy 0 <= min <= 10000 and min <= max <= 20000"
+  end
+  if clean.growth_buffer < 0 or clean.growth_buffer > 10000 then
+    return nil, "growth_buffer must be between 0 and 10000"
+  end
+  if clean.reserve_trigger < 0 or clean.reserve_trigger > 10000 then
+    return nil, "reserve_trigger must be between 0 and 10000"
+  end
+  if clean.reserve_min < 0 or clean.reserve_min > 10000
+      or clean.reserve_max < 0 or clean.reserve_max > 20000
+      or clean.reserve_min > clean.reserve_max then
+    return nil, "reserve limits must satisfy 0 <= min <= 10000 and min <= max <= 20000"
+  end
+  if clean.reserve_trigger + clean.growth_buffer > 20000 then
+    return nil, "reserve_trigger plus growth_buffer cannot exceed 20000"
+  end
+  return clean
+end
+
+local function settings_path()
+  if type(getMudletHomeDir) ~= "function" then return nil end
+  local ok, root = pcall(getMudletHomeDir)
+  if not ok or type(root) ~= "string" or root == "" then return nil end
+  return root:gsub("\\", "/") .. "/exchange-walker-live-settings.ini"
+end
+
+function EW.settings.save()
+  local path = settings_path()
+  if not path or type(io) ~= "table" or type(io.open) ~= "function" then
+    return false, "profile settings storage is unavailable"
+  end
+  local temporary = path .. ".tmp"
+  local file, reason = io.open(temporary, "w")
+  if not file then return false, tostring(reason) end
+  file:write("schema=2\n")
+  for _, key in ipairs(setting_keys) do file:write(key, "=", tostring(EW.settings[key]), "\n") end
+  file:write("targets=", table.concat(EW.settings.targets, "|"), "\n")
+  file:write("excluded_commodities=", table.concat(EW.settings.excluded_commodities, "|"), "\n")
+  file:close()
+  os.remove(path)
+  local renamed, rename_reason = os.rename(temporary, path)
+  if not renamed then os.remove(temporary); return false, tostring(rename_reason) end
+  return true
+end
+
+function EW.settings.load()
+  local path = settings_path()
+  if not path or type(io) ~= "table" or type(io.open) ~= "function" then return false, "unavailable" end
+  local file = io.open(path, "r")
+  if not file then return false, "absent" end
+  local candidate, schema = {}, 1
+  for line_text in file:lines() do
+    local key, value = line_text:match("^([%w_]+)=(.*)$")
+    if key == "schema" then schema = tonumber(value) or 1
+    elseif key == "targets" or key == "excluded_commodities" then
+      candidate[key] = {}
+      for item in tostring(value):gmatch("[^|]+") do candidate[key][#candidate[key] + 1] = item end
+    elseif key then candidate[key] = tonumber(value) end
+  end
+  file:close()
+  if schema < 2 then
+    candidate.surplus_spread = candidate.positive_spread or EW.settings.surplus_spread
+    candidate.deficit_spread = candidate.nonpositive_spread or EW.settings.deficit_spread
+    candidate.breakeven_spread = candidate.nonpositive_spread or EW.settings.breakeven_spread
+    candidate.deficit_min, candidate.deficit_max = 0, 0
+    candidate.breakeven_min, candidate.breakeven_max = 0, 0
+  end
+  candidate.targets = candidate.targets or {}
+  candidate.excluded_commodities = candidate.excluded_commodities or {}
+  local clean, reason = validate_settings(candidate)
+  if not clean then return false, reason end
+  for key, value in pairs(clean) do EW.settings[key] = value end
+  return true
+end
+
+function EW.settings.remove()
+  local path = settings_path()
+  if not path then return false, "profile settings storage is unavailable" end
+  os.remove(path)
+  os.remove(path .. ".tmp")
+  return true
+end
+
+function EW.settings.configure(values, persist)
+  local candidate = { targets = values.targets or EW.settings.targets,
+    excluded_commodities = values.excluded_commodities or EW.settings.excluded_commodities }
+  for _, key in ipairs(setting_keys) do candidate[key] = values[key] or EW.settings[key] end
+  local clean, reason = validate_settings(candidate)
+  if not clean then return false, reason end
+  for key, value in pairs(clean) do EW.settings[key] = value end
+  if persist ~= false then
+    local saved, save_reason = EW.settings.save()
+    if not saved and save_reason ~= "profile settings storage is unavailable" then return false, save_reason end
+  end
+  return true
+end
+
+function EW.settings.setTargetsCsv(value, persist)
+  local targets = {}
+  for target in tostring(value or ""):gmatch("[^,]+") do targets[#targets + 1] = target end
+  if tostring(value or ""):match("^%s*$") then targets = {} end
+  for _, target in ipairs(targets) do
+    if not safe_planet(target) then return false, "target list contains an unsafe planet name" end
+  end
+  return EW.settings.configure({ targets = targets }, persist)
+end
+
+function EW.settings.setExclusionsCsv(value, persist)
+  local exclusions = {}
+  for item in tostring(value or ""):gmatch("[^,]+") do exclusions[#exclusions + 1] = item end
+  if tostring(value or ""):match("^%s*$") then exclusions = {} end
+  for _, item in ipairs(exclusions) do
+    if not safe_planet(item) then return false, "exclusion list contains an unsafe commodity name" end
+  end
+  return EW.settings.configure({ excluded_commodities = exclusions }, persist)
 end
 
 local function current_room_identity()
@@ -151,6 +356,10 @@ local function state_payload()
     planet = EW.plan and EW.plan.planet or nil,
     action_count = EW.plan and #EW.plan.actions or 0,
     plan_applied = EW.plan and EW.plan.applied == true or false,
+    scheduler_enabled = EW.scheduler.enabled, scheduler_running = EW.scheduler.running,
+    interval_minutes = EW.settings.interval_minutes,
+    targets = copy_targets(EW.settings.targets),
+    excluded_commodities = copy_exclusions(EW.settings.excluded_commodities),
   }
 end
 
@@ -158,18 +367,100 @@ local function update_ui()
   local state = EW.enabled and "ON" or "OFF"
   local activity = EW.applying and "APPLYING" or (EW.busy and "CAPTURING" or "IDLE")
   local plan_text = EW.plan and string.format("%d changes", #EW.plan.actions) or "no plan"
+  local auto_text = EW.scheduler.enabled and (EW.scheduler.running and "AUTO RUNNING" or "AUTO WAITING") or "AUTO OFF"
   for _, instance in pairs(EW.ui.instances) do
     local controls = instance.controls
     if controls and controls.status and type(controls.status.echo) == "function" then
       pcall(controls.status.echo, controls.status,
-        string.format("<center>Exchange Walker %s | %s | %s</center>", state, activity, plan_text))
+        string.format("<center>Exchange Walker %s | %s | %s | %s</center>",
+          state, activity, auto_text, plan_text))
     end
     if controls and controls.toggle and type(controls.toggle.echo) == "function" then
       pcall(controls.toggle.echo, controls.toggle,
         string.format("<center>%s</center>", EW.enabled and "OFF" or "ON"))
     end
+    if controls and controls.auto and type(controls.auto.echo) == "function" then
+      pcall(controls.auto.echo, controls.auto,
+        string.format("<center>%s</center>", EW.scheduler.enabled and "AUTO OFF" or "AUTO ON"))
+    end
   end
   emit("state.changed", state_payload())
+end
+
+local function create_command_line(parent, name, x, y, width, height)
+  local command = Geyser.CommandLine:new({ name = name, x = x, y = y,
+    width = width, height = height }, parent)
+  command.name = command.name or name
+  if type(command.setStyleSheet) == "function" then
+    command:setStyleSheet([[QPlainTextEdit { background-color:#10131d; color:#e5e7eb;
+      border:1px solid #596174; padding:2px; font-family:Consolas; font-size:10px; }]])
+  end
+  if type(command.setAction) == "function" then
+    command:setAction(function() end) -- Policy input must never submit text to the game.
+  end
+  if type(command.show) == "function" then command:show() end
+  return command
+end
+
+local function set_command_text(command, value)
+  if not command then return end
+  if type(command.setText) == "function" then pcall(command.setText, command, tostring(value or "")) end
+end
+
+local function get_command_text(command)
+  if not command then return "" end
+  if type(getCmdLine) == "function" and command.name then
+    local ok, value = pcall(getCmdLine, command.name)
+    if ok then return tostring(value or "") end
+  end
+  if type(command.getText) == "function" then
+    local ok, value = pcall(command.getText, command)
+    if ok then return tostring(value or "") end
+  end
+  return tostring(command.text or "")
+end
+
+local function sync_settings_ui(instance)
+  if not instance or not instance.fields then return end
+  for _, key in ipairs(setting_keys) do set_command_text(instance.fields[key], EW.settings[key]) end
+  set_command_text(instance.fields.targets, table.concat(EW.settings.targets, ", "))
+  set_command_text(instance.fields.exclusions, table.concat(EW.settings.excluded_commodities, ", "))
+end
+
+local schedule_next_cycle
+
+local function save_policy_from_instance(instance)
+  local values = {}
+  for _, key in ipairs(setting_keys) do
+    values[key] = tonumber(get_command_text(instance.fields[key]))
+    if values[key] == nil then notice("red", key .. " must be a number") return false end
+  end
+  local ok, reason = EW.settings.configure(values)
+  if not ok then notice("red", "Settings were not saved: " .. tostring(reason)) return false end
+  if EW.scheduler.enabled and not EW.scheduler.running then schedule_next_cycle() end
+  sync_settings_ui(instance)
+  update_ui()
+  notice("green", "Stock, spread, and timer settings saved.")
+  return true
+end
+
+local function save_targets_from_instance(instance)
+  local ok, reason = EW.settings.setTargetsCsv(get_command_text(instance.fields.targets))
+  if not ok then notice("red", "Targets were not saved: " .. tostring(reason)) return false end
+  sync_settings_ui(instance)
+  update_ui()
+  notice("green", string.format("Saved %d remote exchange target(s).", #EW.settings.targets))
+  return true
+end
+
+local function save_exclusions_from_instance(instance)
+  local ok, reason = EW.settings.setExclusionsCsv(get_command_text(instance.fields.exclusions))
+  if not ok then notice("red", "Exclusions were not saved: " .. tostring(reason)) return false end
+  sync_settings_ui(instance)
+  update_ui()
+  notice("green", string.format("Saved %d excluded commodity name(s).",
+    #EW.settings.excluded_commodities))
+  return true
 end
 
 local function destroy_widget(widget)
@@ -216,30 +507,86 @@ local function build_mux_content(target)
   controls.status = create_label(target.content, prefix .. "Status", 0, 0, "100%", 24,
     "Exchange Walker OFF | IDLE | no plan", "#252936", nil,
     "Current Exchange Walker lifecycle and preview state.")
-  controls.toggle = create_label(target.content, prefix .. "Toggle", "0%", 26, "20%", 26,
+  controls.toggle = create_label(target.content, prefix .. "Toggle", "0%", 26, "14%", 26,
     "ON", "#166534", dynamic_call("toggle"), "Arm or disarm Exchange Walker.")
-  controls.preview = create_label(target.content, prefix .. "Preview", "20%", 26, "20%", 26,
+  controls.preview = create_label(target.content, prefix .. "Preview", "14%", 26, "14%", 26,
     "PREVIEW", "#24558a", dynamic_call("preview"),
     "Capture display exchange and display production through F2CE Tools.")
-  controls.apply = create_label(target.content, prefix .. "Apply", "40%", 26, "20%", 26,
+  controls.apply = create_label(target.content, prefix .. "Apply", "28%", 26, "14%", 26,
     "APPLY", "#714018", dynamic_call("apply"), "Apply the reviewed unexpired plan once.")
-  controls.cancel = create_label(target.content, prefix .. "Cancel", "60%", 26, "20%", 26,
+  controls.auto = create_label(target.content, prefix .. "Auto", "42%", 26, "16%", 26,
+    "AUTO", "#375a37", dynamic_call("autoToggle"), "Enable or disable scheduled remote management.")
+  controls.run = create_label(target.content, prefix .. "Run", "58%", 26, "14%", 26,
+    "RUN NOW", "#55427a", dynamic_call("autoRunNow"), "Run one configured remote-management cycle now.")
+  controls.cancel = create_label(target.content, prefix .. "Cancel", "72%", 26, "14%", 26,
     "CANCEL", "#7f1d1d", dynamic_call("cancel"), "Cancel capture or unsent changes.")
-  controls.clear = create_label(target.content, prefix .. "Clear", "80%", 26, "20%", 26,
+  controls.clear = create_label(target.content, prefix .. "Clear", "86%", 26, "14%", 26,
     "CLEAR", "#3e4657", function()
       local current = current_ew()
       if current and current.ui then current.ui.clear() end
     end, "Clear Exchange Walker display history.")
+  local fields = {}
+  local labels = {
+    { "TIMER", "0%", "10%", 54 }, { "DEF SPR", "10%", "10%", 54 },
+    { "DEF MIN", "20%", "10%", 54 }, { "DEF MAX", "30%", "10%", 54 },
+    { "EVEN SPR", "40%", "10%", 54 }, { "EVEN MIN", "50%", "10%", 54 },
+    { "EVEN MAX", "60%", "10%", 54 }, { "SUR SPR", "70%", "10%", 54 },
+    { "BUFFER", "80%", "10%", 54 },
+    { "TRIGGER", "0%", "14%", 100 }, { "SUR MIN", "14%", "14%", 100 },
+    { "SUR MAX", "28%", "14%", 100 },
+  }
+  for index, item in ipairs(labels) do
+    controls["setting_label_" .. index] = create_label(target.content,
+      prefix .. "SettingLabel" .. index, item[2], item[4], item[3], 18,
+      item[1], "#252936", nil, "Editable Exchange Walker policy value.")
+  end
+  local positions = {
+    { "interval_minutes", "0%", "10%", 72 }, { "deficit_spread", "10%", "10%", 72 },
+    { "deficit_min", "20%", "10%", 72 }, { "deficit_max", "30%", "10%", 72 },
+    { "breakeven_spread", "40%", "10%", 72 }, { "breakeven_min", "50%", "10%", 72 },
+    { "breakeven_max", "60%", "10%", 72 }, { "surplus_spread", "70%", "10%", 72 },
+    { "growth_buffer", "80%", "10%", 72 },
+    { "reserve_trigger", "0%", "14%", 118 }, { "reserve_min", "14%", "14%", 118 },
+    { "reserve_max", "28%", "14%", 118 },
+  }
+  for _, item in ipairs(positions) do
+    fields[item[1]] = create_command_line(target.content, prefix .. item[1], item[2], item[4], item[3], 24)
+  end
+  controls.save_policy = create_label(target.content, prefix .. "SavePolicy", "90%", 54, "10%", 42,
+    "SAVE POLICY", "#24558a", function()
+      local current = current_ew()
+      local instance = current and current.ui and current.ui.instances[target] or nil
+      if instance then save_policy_from_instance(instance) end
+    end, "Save timer and all deficit, breakeven, and surplus policy fields.")
+  controls.targets_label = create_label(target.content, prefix .. "TargetsLabel", "0%", 146, "15%", 24,
+    "TARGETS", "#252936", nil, "Comma-separated remote owned planets.")
+  fields.targets = create_command_line(target.content, prefix .. "targets", "15%", 146, "65%", 24)
+  controls.save_targets = create_label(target.content, prefix .. "SaveTargets", "80%", 146, "20%", 24,
+    "SAVE TARGETS", "#24558a", function()
+      local current = current_ew()
+      local instance = current and current.ui and current.ui.instances[target] or nil
+      if instance then save_targets_from_instance(instance) end
+    end, "Save comma-separated remote owned planets.")
+  controls.exclusions_label = create_label(target.content, prefix .. "ExclusionsLabel", "0%", 174, "15%", 24,
+    "EXCLUDE", "#252936", nil, "Comma-separated commodity names that must never be changed.")
+  fields.exclusions = create_command_line(target.content, prefix .. "exclusions", "15%", 174, "65%", 24)
+  controls.save_exclusions = create_label(target.content, prefix .. "SaveExclusions", "80%", 174, "20%", 24,
+    "SAVE EXCLUSIONS", "#24558a", function()
+      local current = current_ew()
+      local instance = current and current.ui and current.ui.instances[target] or nil
+      if instance then save_exclusions_from_instance(instance) end
+    end, "Save comma-separated commodity exclusions.")
   local console = Geyser.MiniConsole:new({
-    name = prefix .. "Console", x = 0, y = 54, width = "100%", height = "100%-54px",
+    name = prefix .. "Console", x = 0, y = 202, width = "100%", height = "100%-202px",
     fontSize = 9, scrollBar = true,
   }, target.content)
   if type(console.setColor) == "function" then pcall(console.setColor, console, 18, 18, 26) end
   if type(console.enableAutoWrap) == "function" then pcall(console.enableAutoWrap, console) end
   if type(console.show) == "function" then pcall(console.show, console) end
-  EW.ui.instances[target] = { target = target, controls = controls, console = console }
+  EW.ui.instances[target] = { target = target, controls = controls, fields = fields, console = console }
   EW.ui.registered_target = target
   for _, line_text in ipairs(EW.ui.history) do console_write(console, line_text) end
+  sync_settings_ui(EW.ui.instances[target])
   update_ui()
 end
 
@@ -247,14 +594,15 @@ local function destroy_mux_content(target)
   local instance = EW.ui.instances[target]
   if not instance then return end
   if instance.controls then for _, widget in pairs(instance.controls) do destroy_widget(widget) end end
+  if instance.fields then for _, widget in pairs(instance.fields) do destroy_widget(widget) end end
   destroy_widget(instance.console)
   EW.ui.instances[target] = nil
   if EW.ui.registered_target == target then EW.ui.registered_target = nil end
 end
 
 function EW.ui.registerMuxContent()
-  if not (Geyser and Geyser.Label and Geyser.MiniConsole) then
-    return false, "Geyser Label/MiniConsole is unavailable"
+  if not (Geyser and Geyser.Label and Geyser.MiniConsole and Geyser.CommandLine) then
+    return false, "Geyser Label/MiniConsole/CommandLine is unavailable"
   end
   local definition = {
     name = "Exchange Walker",
@@ -262,7 +610,10 @@ function EW.ui.registerMuxContent()
     group = "Exchange Walker Live", internal = false, singleton = false,
     apply = function(target)
       local ok, reason = pcall(build_mux_content, target)
-      if not ok then main_notice("red", "Mux content failed: " .. tostring(reason)) end
+      if not ok then
+        main_notice("red", "Mux content failed: " .. tostring(reason))
+        error(reason, 0)
+      end
     end,
     remove = function(target) destroy_mux_content(target) end,
     resize = function(_target) update_ui() end,
@@ -275,8 +626,41 @@ function EW.ui.registerMuxContent()
   return ok, reason
 end
 
+function EW.ui.placeDefault()
+  if next(EW.ui.instances) ~= nil then return true, "already-placed" end
+  if not EW.ui.registered then
+    local registered, reason = EW.ui.registerMuxContent()
+    if not registered then return false, reason end
+  end
+  local placed, pane_or_reason, status = EW.f2ce.display.placeRegisteredContent(
+    EW.ui.content_id, EW.ui.preferred_pane_start, EW.ui.preferred_pane_end)
+  if placed then EW.ui.preferred_pane_id = pane_or_reason end
+  return placed, pane_or_reason, status
+end
+
+function EW.ui.schedulePlacement(delay)
+  if EW.ui_placement_timer then cancel_timer("ui_placement_timer") end
+  if type(tempTimer) ~= "function" then return EW.ui.placeDefault() end
+  EW.ui_placement_timer = tempTimer(tonumber(delay) or 0.25, function()
+    EW.ui_placement_timer = nil
+    local ok, reason = EW.ui.placeDefault()
+    if ok then
+      EW.ui.placement_attempt = 0
+    else
+      EW.ui.placement_attempt = EW.ui.placement_attempt + 1
+    end
+    local retryable = tostring(reason):find("not registered", 1, true)
+      or tostring(reason):find("capability is unavailable", 1, true)
+      or tostring(reason):find("no empty existing Mux pane", 1, true)
+    if not ok and retryable and EW.ui.placement_attempt < EW.ui.placement_attempt_limit then
+      EW.ui.schedulePlacement(0.5)
+    end
+  end)
+  return true
+end
+
 function EW.ui.mount(_activate, _reapply)
-  return false, "pane placement is user-controlled through Muxlet Content Library"
+  return EW.ui.placeDefault()
 end
 
 function EW.ui.install()
@@ -288,8 +672,14 @@ function EW.ui.show()
     local ok, reason = EW.ui.registerMuxContent()
     if not ok then notice("yellow", "Mux display unavailable: " .. tostring(reason)) return false end
   end
-  notice("cyan", "Exchange Walker content is registered. Select Exchange Walker from Muxlet Content Library in any user-chosen pane or tab.")
-  return true
+  local placed, pane_or_reason = EW.ui.placeDefault()
+  if placed then
+    notice("cyan", "Exchange Walker is available in " .. tostring(pane_or_reason) .. ".")
+    return true
+  end
+  notice("yellow", "Exchange Walker is registered but was not auto-placed: " .. tostring(pane_or_reason)
+    .. ". Select it from Muxlet Content Library.")
+  return false
 end
 
 local function validate_complete_capture(exchange_data, production_data)
@@ -374,11 +764,18 @@ local function validate_complete_capture(exchange_data, production_data)
   return production_by_name, nil
 end
 
-local function make_plan(exchange_data, production_data, room_identity)
+local function make_plan(exchange_data, production_data, room_identity, target_planet)
   local production_by_name, capture_error = validate_complete_capture(exchange_data, production_data)
   if not production_by_name then return nil, capture_error end
-  local rows = {}
+  local rows, excluded = {}, {}
+  for _, commodity in ipairs(EW.settings.excluded_commodities) do
+    excluded[normalized(commodity)] = true
+  end
   for _, exchange in ipairs(exchange_data) do
+    if excluded[normalized(exchange.name)] then
+      -- Excluded rows still participated in complete-capture validation above,
+      -- but are deliberately omitted from every proposed mutation.
+    else
     local production = production_by_name[normalized(exchange.name)]
     local produced, consumed = production.production, production.consumption
     local net = produced - consumed
@@ -387,13 +784,19 @@ local function make_plan(exchange_data, production_data, room_identity)
     local old_max = math.floor(tonumber(exchange.stock_max))
     local old_spread = math.floor(tonumber(exchange.spread))
     local target_min, target_max, target_spread, policy
-    if net <= 0 then
-      target_min, target_max, target_spread, policy = 0, 0, 6, "deficit/breakeven"
-    elseif current < 10000 then
-      target_min, target_max = math.max(0, current), math.max(0, current) + 1000
-      target_spread, policy = 40, "surplus-growing"
+    if net < 0 then
+      target_min, target_max = EW.settings.deficit_min, EW.settings.deficit_max
+      target_spread, policy = EW.settings.deficit_spread, "deficit"
+    elseif net == 0 then
+      target_min, target_max = EW.settings.breakeven_min, EW.settings.breakeven_max
+      target_spread, policy = EW.settings.breakeven_spread, "breakeven"
+    elseif current < EW.settings.reserve_trigger then
+      target_min = math.min(10000, math.max(0, current))
+      target_max = math.min(20000, target_min + EW.settings.growth_buffer)
+      target_spread, policy = EW.settings.surplus_spread, "surplus-growing"
     else
-      target_min, target_max, target_spread, policy = 10000, 20000, 40, "surplus-reserve"
+      target_min, target_max = EW.settings.reserve_min, EW.settings.reserve_max
+      target_spread, policy = EW.settings.surplus_spread, "surplus-reserve"
     end
     rows[#rows + 1] = {
       commodity = exchange.name, production = produced, consumption = consumed, net = net,
@@ -401,6 +804,7 @@ local function make_plan(exchange_data, production_data, room_identity)
       target_min = target_min, target_max = target_max,
       old_spread = old_spread, target_spread = target_spread, policy = policy,
     }
+    end
   end
   table.sort(rows, function(left, right)
     if left.net == right.net then return normalized(left.commodity) < normalized(right.commodity) end
@@ -409,17 +813,21 @@ local function make_plan(exchange_data, production_data, room_identity)
   local actions = {}
   for _, row in ipairs(rows) do
     if row.target_min ~= row.old_min then
-      actions[#actions + 1] = { kind = "min", commodity = row.commodity, value = row.target_min }
+      actions[#actions + 1] = { kind = "min", commodity = row.commodity,
+        value = row.target_min, planet = target_planet }
     end
     if row.target_max ~= row.old_max then
-      actions[#actions + 1] = { kind = "max", commodity = row.commodity, value = row.target_max }
+      actions[#actions + 1] = { kind = "max", commodity = row.commodity,
+        value = row.target_max, planet = target_planet }
     end
     if row.target_spread ~= row.old_spread then
-      actions[#actions + 1] = { kind = "spread", commodity = row.commodity, value = row.target_spread }
+      actions[#actions + 1] = { kind = "spread", commodity = row.commodity,
+        value = row.target_spread, planet = target_planet }
     end
   end
-  return { created_at = os.time(), room_identity = room_identity,
-    planet = current_planet_name(), rows = rows, actions = actions, applied = false }, nil
+  return { created_at = os.time(), room_identity = target_planet and nil or room_identity,
+    planet = target_planet or current_planet_name(), target_planet = target_planet,
+    remote = target_planet ~= nil, rows = rows, actions = actions, applied = false }, nil
 end
 
 local function compact_name(value, width)
@@ -432,6 +840,13 @@ local function display_plan(plan)
   local lines = {
     string.format("<green>EXCHANGE + PRODUCTION | %s<reset>", plan.planet),
     "<dim_grey>Production, stock, spread, and limits (old -> new)<reset>",
+    string.format("<dim_grey>Policy: deficit %d%% %d/%d | even %d%% %d/%d | surplus %d%%<reset>",
+      EW.settings.deficit_spread, EW.settings.deficit_min, EW.settings.deficit_max,
+      EW.settings.breakeven_spread, EW.settings.breakeven_min, EW.settings.breakeven_max,
+      EW.settings.surplus_spread),
+    string.format("<dim_grey>Surplus growth: +%d until %d; reserve %d/%d | excluded %d<reset>",
+      EW.settings.growth_buffer, EW.settings.reserve_trigger,
+      EW.settings.reserve_min, EW.settings.reserve_max, #EW.settings.excluded_commodities),
   }
   for _, row in ipairs(plan.rows) do
     local color = row.net > 0 and "green" or "red"
@@ -461,10 +876,11 @@ end
 
 local function preview_failed(message)
   EW.f2ce.capture.cancel()
-  EW.busy, EW.plan, EW.capture_room_identity = false, nil, nil
+  EW.busy, EW.plan, EW.capture_room_identity, EW.capture_target = false, nil, nil, nil
   update_ui()
   notice("red", message)
   emit("preview.failed", { reason = message })
+  if EW.operation_mode == "auto" and type(EW.autoFail) == "function" then EW.autoFail(message) end
   return false
 end
 
@@ -487,18 +903,21 @@ function EW.on()
   end
   EW.enabled = true
   update_ui()
-  notice("green", "ON. Use `ew preview` to inspect proposed stockpile and spread changes.")
+  notice("green", "ON. Use `ew preview [planet]` or configure targets and `ew auto on`.")
   return true
 end
 
 function EW.cancel(reason)
   local was_active = EW.busy or EW.applying
+  cancel_timer("scheduler_timer")
+  EW.scheduler.enabled, EW.scheduler.running = false, false
   cancel_timer("transition_timer")
   cancel_timer("apply_timer")
   cancel_timer("confirmation_timer")
   local capture_ok, capture_reason = EW.f2ce.capture.cancel()
   EW.busy, EW.applying = false, false
-  EW.pending_confirmation, EW.apply_index, EW.capture_room_identity = nil, nil, nil
+  EW.pending_confirmation, EW.apply_index = nil, nil
+  EW.capture_room_identity, EW.capture_target, EW.operation_mode = nil, nil, "manual"
   update_ui()
   if not capture_ok then notice("yellow", tostring(capture_reason)) end
   if was_active then
@@ -521,7 +940,7 @@ function EW.toggle()
   return EW.on()
 end
 
-function EW.preview()
+function EW.preview(target_planet, automatic)
   if not EW.enabled then notice("red", "The walker is OFF. Use `ew on` first.") return false end
   if EW.busy or EW.applying then
     notice("yellow", "A capture or apply operation is already in progress.")
@@ -529,14 +948,26 @@ function EW.preview()
   end
   local ok, reason = EW.f2ce.core.check({ minimum_version = EW.MIN_F2CE_VERSION, gmcp = true })
   if not ok then return preview_failed(tostring(reason)) end
+  local target
+  if target_planet ~= nil and trimmed(target_planet) ~= "" then
+    target = safe_planet(target_planet)
+    if not target then return preview_failed("Remote target is not a safe planet name.") end
+  end
   local room_identity = current_room_identity()
-  if not room_identity then return preview_failed("GMCP room identity is unavailable.") end
-  EW.plan, EW.busy, EW.capture_room_identity = nil, true, room_identity
+  if not target and not room_identity then return preview_failed("GMCP room identity is unavailable.") end
+  EW.plan, EW.busy, EW.capture_room_identity = nil, true, target and nil or room_identity
+  EW.capture_target, EW.operation_mode = target, automatic and "auto" or "manual"
   update_ui()
-  notice("cyan", "Gathering current exchange and production data through F2CE Tools...")
-  local started, start_reason = EW.f2ce.capture.exchange(function(exchange_data)
+  notice("cyan", string.format("Gathering exchange and production data for %s through F2CE Tools...",
+    target or current_planet_name()))
+  local function location_changed()
+    return not target and current_room_identity() ~= EW.capture_room_identity
+  end
+  local exchange_capture = target and EW.f2ce.po.captureExchange or EW.f2ce.capture.exchange
+  local production_capture = target and EW.f2ce.po.captureProduction or EW.f2ce.capture.production
+  local started, start_reason = exchange_capture(target, function(exchange_data)
     if not EW.enabled then return preview_failed("Capture stopped because the walker was switched OFF.") end
-    if current_room_identity() ~= EW.capture_room_identity then
+    if location_changed() then
       return preview_failed("Location changed during exchange capture; no plan was created.")
     end
     if type(exchange_data) ~= "table" or #exchange_data == 0 then
@@ -544,25 +975,26 @@ function EW.preview()
     end
     EW.transition_timer = tempTimer(0.15, function()
       EW.transition_timer = nil
-      if current_room_identity() ~= EW.capture_room_identity then
+      if location_changed() then
         return preview_failed("Location changed before production capture; no plan was created.")
       end
-      local production_started, production_reason = EW.f2ce.capture.production(function(production_data)
+      local production_started, production_reason = production_capture(target, function(production_data)
         EW.busy = false
         if not EW.enabled then
-          EW.plan, EW.capture_room_identity = nil, nil
+          EW.plan, EW.capture_room_identity, EW.capture_target = nil, nil, nil
           update_ui()
           notice("yellow", "Capture completed after OFF; results were discarded.")
           return
         end
-        if current_room_identity() ~= EW.capture_room_identity then
+        if location_changed() then
           return preview_failed("Location changed during production capture; no plan was created.")
         end
         if type(production_data) ~= "table" or next(production_data) == nil then
           return preview_failed("No live production rows were captured; no plan was created.")
         end
-        local plan, capture_error = make_plan(exchange_data, production_data, EW.capture_room_identity)
-        EW.capture_room_identity = nil
+        local plan, capture_error = make_plan(exchange_data, production_data,
+          EW.capture_room_identity, target)
+        EW.capture_room_identity, EW.capture_target = nil, nil
         if not plan then
           return preview_failed(tostring(capture_error) .. " No plan was created; nothing can be applied.")
         end
@@ -570,6 +1002,13 @@ function EW.preview()
         update_ui()
         display_plan(plan)
         emit("plan.ready", plan)
+        if automatic then
+          if #plan.actions == 0 then
+            if type(EW.autoAdvance) == "function" then EW.autoAdvance() end
+          else
+            EW.apply(true)
+          end
+        end
       end)
       if not production_started then
         preview_failed("Production capture could not start: " .. tostring(production_reason))
@@ -587,12 +1026,20 @@ local function stop_apply(message, color)
   update_ui()
   notice(color or "red", message)
   emit("apply.failed", { reason = message, plan = EW.plan })
+  if EW.operation_mode == "auto" and type(EW.autoFail) == "function" then EW.autoFail(message) end
   return false
 end
 
 local function apply_context_valid()
   if not EW.enabled then return false, "Apply stopped because Exchange Walker is OFF." end
   if not EW.plan then return false, "Apply stopped because the preview plan disappeared." end
+  if EW.plan.remote then
+    if not safe_planet(EW.plan.target_planet)
+        or normalized(EW.plan.target_planet) ~= normalized(EW.plan.planet) then
+      return false, "Apply stopped because the remote plan target is invalid."
+    end
+    return true
+  end
   if EW.plan.room_identity ~= current_room_identity() then
     return false, "Apply stopped because the GMCP room identity changed."
   end
@@ -617,6 +1064,7 @@ send_action = function(index)
       "Apply complete: %d/%d reviewed changes were sent once and confirmed.",
       #EW.plan.actions, #EW.plan.actions))
     emit("apply.completed", { plan = EW.plan })
+    if EW.operation_mode == "auto" and type(EW.autoAdvance) == "function" then EW.autoAdvance() end
     return true
   end
   EW.apply_index = index
@@ -625,7 +1073,7 @@ send_action = function(index)
     value = action.value, action = action,
   }
   local dispatched, dispatch_reason = EW.f2ce.commands.stockpile(
-    action.kind, action.commodity, action.value)
+    action.kind, action.commodity, action.value, action.planet)
   if not dispatched then
     return stop_apply("Shared API blocked the reviewed setting change: " .. tostring(dispatch_reason))
   end
@@ -639,8 +1087,12 @@ send_action = function(index)
   return true
 end
 
-function EW.apply()
+function EW.apply(automatic)
   if not EW.enabled then notice("red", "The walker is OFF; nothing was sent.") return false end
+  if automatic and not (EW.scheduler.enabled and EW.scheduler.running and EW.operation_mode == "auto") then
+    notice("red", "Scheduled apply lacks active automation authority; nothing was sent.")
+    return false
+  end
   if EW.busy or EW.applying then
     notice("yellow", "A capture or apply operation is already in progress.") return false
   end
@@ -671,12 +1123,14 @@ end
 
 local function confirmation(kind)
   local commodity = matches and matches[2] or nil
-  local reported = matches and matches[3] or nil
-  if not commodity or not reported or not EW.applying then return end
+  local planet = matches and matches[3] or nil
+  local reported = matches and matches[4] or nil
+  if not commodity or not planet or not reported or not EW.applying then return end
   local pending = EW.pending_confirmation
   if type(pending) ~= "table" then return end
   local key = normalized(commodity) .. ":" .. kind
   if key ~= pending.key then return end
+  if normalized(planet) ~= normalized(EW.plan and EW.plan.planet) then return end
   local numeric = tonumber((tostring(reported):gsub(",", "")))
   if numeric ~= pending.value then
     return stop_apply(string.format(
@@ -696,6 +1150,209 @@ local function confirmation(kind)
     EW.apply_timer = nil
     send_action((completed_index or 0) + 1)
   end)
+end
+
+schedule_next_cycle = function()
+  cancel_timer("scheduler_timer")
+  if not EW.scheduler.enabled or type(tempTimer) ~= "function" then return false end
+  EW.scheduler_timer = tempTimer(EW.settings.interval_minutes * 60, function()
+    EW.scheduler_timer = nil
+    if EW.scheduler.enabled then EW.autoRunNow() end
+  end)
+  return EW.scheduler_timer ~= nil
+end
+
+function EW.autoStatus()
+  local state = EW.scheduler.enabled and (EW.scheduler.running and "RUNNING" or "WAITING") or "OFF"
+  notice("cyan", string.format(
+    "Auto %s | every %d minutes | %d target(s) | %d cycle(s) complete | %d failure(s).",
+    state, EW.settings.interval_minutes, #EW.settings.targets,
+    EW.scheduler.completed, EW.scheduler.failures))
+  return state_payload()
+end
+
+function EW.autoFail(reason)
+  cancel_timer("scheduler_timer")
+  EW.scheduler.enabled, EW.scheduler.running = false, false
+  EW.scheduler.targets, EW.scheduler.index = {}, 0
+  EW.scheduler.failures = EW.scheduler.failures + 1
+  EW.operation_mode = "manual"
+  update_ui()
+  notice("red", "Scheduled management is OFF: " .. tostring(reason))
+  return false
+end
+
+function EW.autoAdvance()
+  if not (EW.enabled and EW.scheduler.enabled and EW.scheduler.running) then return false end
+  EW.scheduler.index = EW.scheduler.index + 1
+  local target = EW.scheduler.targets[EW.scheduler.index]
+  if not target then
+    EW.scheduler.running = false
+    EW.scheduler.completed = EW.scheduler.completed + 1
+    EW.operation_mode = "manual"
+    update_ui()
+    notice("green", string.format(
+      "Scheduled cycle complete across %d remote exchange(s); next check in %d minutes.",
+      #EW.scheduler.targets, EW.settings.interval_minutes))
+    return schedule_next_cycle()
+  end
+  notice("cyan", string.format("Scheduled remote exchange %d/%d: %s.",
+    EW.scheduler.index, #EW.scheduler.targets, target))
+  return EW.preview(target, true)
+end
+
+function EW.autoRunNow()
+  if not EW.enabled then notice("red", "Exchange Walker is OFF; no scheduled cycle started.") return false end
+  if not EW.scheduler.enabled then
+    notice("red", "Scheduled management is OFF. Use `ew auto on` first.") return false
+  end
+  if EW.busy or EW.applying or EW.scheduler.running then
+    notice("yellow", "A capture, apply, or scheduled cycle is already active.") return false
+  end
+  local targets = copy_targets(EW.settings.targets)
+  if #targets == 0 then
+    return EW.autoFail("no remote target planets are configured")
+  end
+  cancel_timer("scheduler_timer")
+  EW.scheduler.targets, EW.scheduler.index, EW.scheduler.running = targets, 0, true
+  EW.operation_mode = "auto"
+  update_ui()
+  notice("yellow", string.format(
+    "Scheduled cycle starting across %d configured remote exchange(s). Complete captures are applied automatically.",
+    #targets))
+  return EW.autoAdvance()
+end
+
+function EW.autoOn()
+  if not EW.enabled then notice("red", "Arm Exchange Walker with `ew on` first.") return false end
+  if #EW.settings.targets == 0 then
+    notice("red", "Add at least one remote target before enabling scheduled management.") return false
+  end
+  EW.scheduler.enabled = true
+  update_ui()
+  notice("yellow", string.format(
+    "Scheduled management ON. Complete reviewed changes will be applied every %d minutes.",
+    EW.settings.interval_minutes))
+  return EW.autoRunNow()
+end
+
+function EW.autoOff(reason)
+  local was_active = EW.scheduler.enabled or EW.scheduler.running
+  cancel_timer("scheduler_timer")
+  EW.scheduler.enabled, EW.scheduler.running = false, false
+  EW.scheduler.targets, EW.scheduler.index = {}, 0
+  if EW.operation_mode == "auto" and (EW.busy or EW.applying) then
+    EW.cancel(reason or "Scheduled management cancelled; unsent changes were discarded.")
+  end
+  EW.operation_mode = "manual"
+  update_ui()
+  if was_active then notice("red", reason or "Scheduled management OFF.") end
+  return true
+end
+
+function EW.autoToggle()
+  if EW.scheduler.enabled then return EW.autoOff() end
+  return EW.autoOn()
+end
+
+function EW.settingsStatus()
+  EW.ui.replace({
+    "<cyan>EXCHANGE WALKER SETTINGS<reset>",
+    string.format("Timer: %d minutes", EW.settings.interval_minutes),
+    string.format("Deficit: spread %d | limits %d/%d",
+      EW.settings.deficit_spread, EW.settings.deficit_min, EW.settings.deficit_max),
+    string.format("Breakeven: spread %d | limits %d/%d",
+      EW.settings.breakeven_spread, EW.settings.breakeven_min, EW.settings.breakeven_max),
+    string.format("Surplus: spread %d | growth buffer %d | trigger %d | reserve %d/%d",
+      EW.settings.surplus_spread,
+      EW.settings.growth_buffer, EW.settings.reserve_trigger,
+      EW.settings.reserve_min, EW.settings.reserve_max),
+    "Targets: " .. (#EW.settings.targets > 0 and table.concat(EW.settings.targets, ", ") or "none"),
+    "Excluded: " .. (#EW.settings.excluded_commodities > 0
+      and table.concat(EW.settings.excluded_commodities, ", ") or "none"),
+    "Edit the fields in the Mux pane and press SAVE POLICY / SAVE TARGETS.",
+  })
+  return state_payload()
+end
+
+local setting_aliases = {
+  interval = "interval_minutes", ["surplus-spread"] = "surplus_spread",
+  ["breakeven-spread"] = "breakeven_spread", ["deficit-spread"] = "deficit_spread",
+  ["deficit-min"] = "deficit_min", ["deficit-max"] = "deficit_max",
+  ["breakeven-min"] = "breakeven_min", ["breakeven-max"] = "breakeven_max",
+  buffer = "growth_buffer",
+  trigger = "reserve_trigger", ["reserve-min"] = "reserve_min",
+  ["reserve-max"] = "reserve_max",
+}
+
+function EW.setSetting(name, value)
+  local key = setting_aliases[normalized(name)]
+  if not key then notice("red", "Unknown setting: " .. tostring(name)) return false end
+  local numeric = tonumber(value)
+  if numeric == nil then notice("red", "Setting value must be numeric.") return false end
+  local ok, reason = EW.settings.configure({ [key] = numeric })
+  if not ok then notice("red", "Setting was not saved: " .. tostring(reason)) return false end
+  for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+  if EW.scheduler.enabled and not EW.scheduler.running then schedule_next_cycle() end
+  update_ui()
+  notice("green", string.format("%s set to %d.", key, EW.settings[key]))
+  return true
+end
+
+function EW.addTarget(value)
+  local target = safe_planet(value)
+  if not target then notice("red", "Target is not a safe planet name.") return false end
+  local targets = copy_targets(EW.settings.targets)
+  targets[#targets + 1] = target
+  local ok, reason = EW.settings.configure({ targets = targets })
+  if not ok then notice("red", tostring(reason)) return false end
+  for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+  update_ui()
+  notice("green", "Remote target saved: " .. target .. ".")
+  return true
+end
+
+function EW.removeTarget(value)
+  local key = normalized(safe_planet(value))
+  if key == "" then notice("red", "Target is not a safe planet name.") return false end
+  local targets = {}
+  for _, target in ipairs(EW.settings.targets) do
+    if normalized(target) ~= key then targets[#targets + 1] = target end
+  end
+  local ok, reason = EW.settings.configure({ targets = targets })
+  if not ok then notice("red", tostring(reason)) return false end
+  for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+  update_ui()
+  notice("green", "Remote target removed: " .. tostring(value) .. ".")
+  return true
+end
+
+function EW.addExclusion(value)
+  local commodity = safe_planet(value)
+  if not commodity then notice("red", "Commodity is not a safe name.") return false end
+  local exclusions = copy_exclusions(EW.settings.excluded_commodities)
+  exclusions[#exclusions + 1] = commodity
+  local ok, reason = EW.settings.configure({ excluded_commodities = exclusions })
+  if not ok then notice("red", tostring(reason)) return false end
+  for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+  update_ui()
+  notice("green", "Commodity excluded: " .. commodity .. ".")
+  return true
+end
+
+function EW.removeExclusion(value)
+  local key = normalized(safe_planet(value))
+  if key == "" then notice("red", "Commodity is not a safe name.") return false end
+  local exclusions = {}
+  for _, commodity in ipairs(EW.settings.excluded_commodities) do
+    if normalized(commodity) ~= key then exclusions[#exclusions + 1] = commodity end
+  end
+  local ok, reason = EW.settings.configure({ excluded_commodities = exclusions })
+  if not ok then notice("red", tostring(reason)) return false end
+  for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+  update_ui()
+  notice("green", "Commodity exclusion removed: " .. tostring(value) .. ".")
+  return true
 end
 
 local function add_trigger(pattern, callback)
@@ -724,23 +1381,47 @@ local function api_status()
 end
 
 local function install_runtime_hooks()
-  add_trigger([[^\s*Min stock level for (\w+) on .+ set to ([0-9][0-9,]*(?:\.[0-9]+)?) tons\.$]],
+  add_trigger([[^\s*Min stock level for (\w+) on (.+) set to ([0-9][0-9,]*(?:\.[0-9]+)?) tons\.$]],
     function() confirmation("min") end)
-  add_trigger([[^\s*Max stock level for (\w+) on .+ set to ([0-9][0-9,]*(?:\.[0-9]+)?) tons\.$]],
+  add_trigger([[^\s*Max stock level for (\w+) on (.+) set to ([0-9][0-9,]*(?:\.[0-9]+)?) tons\.$]],
     function() confirmation("max") end)
-  add_trigger([[^\s*Price spread for (\w+) on .+ set to ([0-9]+)%\.$]],
+  add_trigger([[^\s*Price spread for (\w+) on (.+) set to ([0-9]+)%\.$]],
     function() confirmation("spread") end)
   if type(tempAlias) == "function" then
     EW.runtime.alias_id = tempAlias(
-      [[^ew(?:\s+(on|off|toggle|preview|apply|cancel|status|display|api|help))?\s*$]], function()
-      local command = normalized(matches and matches[2] or "status")
+      [[^ew(?:\s+(.*))?\s*$]], function()
+      local raw_command = trimmed(matches and matches[2] or "status")
+      local command = normalized(raw_command)
       if command == "on" then EW.on()
       elseif command == "off" then EW.off()
       elseif command == "toggle" then EW.toggle()
       elseif command == "preview" then EW.preview()
+      elseif command:match("^preview%s+.+") then EW.preview(raw_command:match("^%S+%s+(.+)$"))
       elseif command == "apply" then EW.apply()
       elseif command == "cancel" then EW.cancel()
       elseif command == "status" then EW.status()
+      elseif command == "settings" then EW.settingsStatus()
+      elseif command == "auto on" then EW.autoOn()
+      elseif command == "auto off" then EW.autoOff()
+      elseif command == "auto run" or command == "auto now" then EW.autoRunNow()
+      elseif command == "auto status" then EW.autoStatus()
+      elseif command:match("^set%s+[%w%-]+%s+%-?%d+$") then
+        local name, value = raw_command:match("^%S+%s+(%S+)%s+(%-?%d+)$")
+        EW.setSetting(name, value)
+      elseif command:match("^target%s+add%s+.+") then EW.addTarget(raw_command:match("^%S+%s+%S+%s+(.+)$"))
+      elseif command:match("^target%s+remove%s+.+") then EW.removeTarget(raw_command:match("^%S+%s+%S+%s+(.+)$"))
+      elseif command == "target clear" then
+        EW.settings.configure({ targets = {} })
+        for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+        update_ui(); notice("green", "Remote targets cleared.")
+      elseif command == "target list" then EW.settingsStatus()
+      elseif command:match("^exclude%s+add%s+.+") then EW.addExclusion(raw_command:match("^%S+%s+%S+%s+(.+)$"))
+      elseif command:match("^exclude%s+remove%s+.+") then EW.removeExclusion(raw_command:match("^%S+%s+%S+%s+(.+)$"))
+      elseif command == "exclude clear" then
+        EW.settings.configure({ excluded_commodities = {} })
+        for _, instance in pairs(EW.ui.instances) do sync_settings_ui(instance) end
+        update_ui(); notice("green", "Commodity exclusions cleared.")
+      elseif command == "exclude list" then EW.settingsStatus()
       elseif command == "display" then EW.ui.show()
       elseif command == "api" then api_status()
       else
@@ -749,9 +1430,15 @@ local function install_runtime_hooks()
           "<yellow>ew on<reset>       Arm capture and explicit apply",
           "<yellow>ew off<reset>      Disable and cancel pending work",
           "<yellow>ew preview<reset>  Capture exchange + production and show a plan",
+          "<yellow>ew preview PLANET<reset>  Preview one remote owned exchange",
           "<yellow>ew apply<reset>    Apply the latest unexpired preview once",
+          "<yellow>ew target add/remove PLANET<reset>  Edit scheduled targets",
+          "<yellow>ew exclude add/remove COMMODITY<reset>  Protect commodities from all changes",
+          "<yellow>ew set interval 30<reset>  Set timer minutes (5-1440)",
+          "<yellow>ew settings<reset> Show stock/spread/timer policy",
+          "<yellow>ew auto on/off/run/status<reset>  Scheduled remote management",
           "<yellow>ew cancel<reset>   Cancel capture or unsent changes",
-          "<yellow>ew display<reset>  Open the F2CE Stockpiles Mux tab",
+          "<yellow>ew display<reset>  Place/show the Exchange Walker Mux content",
           "<yellow>ew status<reset>   Show current state",
           "<yellow>ew api<reset>      Show F2CE adapter capabilities",
         })
@@ -760,7 +1447,9 @@ local function install_runtime_hooks()
     end)
   end
   add_handler("muxletReady", function()
+    EW.ui.placement_attempt = 0
     EW.ui.registerMuxContent()
+    EW.ui.schedulePlacement(0.25)
     update_ui()
   end)
   add_handler("sysDisconnectionEvent", function()
@@ -768,6 +1457,13 @@ local function install_runtime_hooks()
   end)
   add_handler("sysConnectionEvent", function()
     EW.off("Reconnect safety reset. Use `ew on` explicitly.")
+  end)
+  add_handler("sysUninstallPackage", function(_, package_name)
+    local name = normalized(package_name)
+    if name == "exchange-walker-live" or name == "exchange walker live" then
+      EW.settings.remove()
+      EW.shutdown()
+    end
   end)
 end
 
@@ -790,6 +1486,8 @@ end
 
 function EW.shutdown()
   EW.ui.shutting_down = true
+  cancel_timer("scheduler_timer")
+  cancel_timer("ui_placement_timer")
   EW.cancel("Exchange Walker runtime shutdown; unsent work cancelled.")
   EW.enabled, EW.plan = false, nil
   for _, id in ipairs(EW.runtime.trigger_ids) do
@@ -813,6 +1511,10 @@ EW.public = {
   contract = EW.API_CONTRACT, version = EW.VERSION,
   status = EW.status, on = EW.on, off = EW.off,
   preview = EW.preview, apply = EW.apply, cancel = EW.cancel,
+  autoOn = EW.autoOn, autoOff = EW.autoOff, autoRunNow = EW.autoRunNow,
+  autoStatus = EW.autoStatus, setSetting = EW.setSetting,
+  addTarget = EW.addTarget, removeTarget = EW.removeTarget,
+  addExclusion = EW.addExclusion, removeExclusion = EW.removeExclusion,
   show = EW.ui.show, subscribe = EW.subscribe, unsubscribe = EW.unsubscribe,
   capabilities = api_status,
 }
@@ -828,10 +1530,12 @@ exchange_walker_shutdown = EW.shutdown
 fetch_and_process_data = EW.preview
 
 install_runtime_hooks()
+EW.settings.load()
 local registered, registration_reason = EW.ui.install()
+if registered then EW.ui.schedulePlacement(0.25) end
 update_ui()
 if not registered and registration_reason then
   notice("yellow", "Mux content registration is unavailable: " .. tostring(registration_reason) .. ". Console commands remain available.")
 end
 notice("cyan", string.format(
-  "v%s loaded; default is OFF. Use `ew on`, `ew preview`, then explicit `ew apply`.", EW.VERSION))
+  "v%s loaded; default is OFF. Remote policy is saved; scheduled automation requires explicit `ew auto on`.", EW.VERSION))
