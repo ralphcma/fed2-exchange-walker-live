@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3.3-live — 2026-09-07
+
+- Order paired stock limits against the server's live invariant: raise maximum
+  before a minimum that exceeds the old maximum, and lower minimum before a
+  maximum that falls below the old minimum. Other paired changes use a stable
+  maximum-first order.
+- Preserve the existing one-command/one-confirmation queue; an ordering failure
+  still stops all remaining reviewed changes without retrying.
+
 ## 3.3.2-live — 2026-09-07
 
 - Prefill every Mux policy field through the real Geyser CommandLine `print`

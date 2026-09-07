@@ -2,7 +2,7 @@
 -- Copyright (C) 2026 Exchange Walker Live contributors
 -------------------------------------------------------------------------------
 -- Exchange Walker Live for Mudlet
--- Version 3.3.2-live
+-- Version 3.3.3-live
 --
 -- Configurable local/remote owner stockpile planner. Capture, typed remote
 -- mutations, and Mux registration/placement are delegated through f2ce-api.lua
@@ -21,7 +21,7 @@ if type(EW.f2ce) ~= "table" then
   return
 end
 
-EW.VERSION = "3.3.2-live"
+EW.VERSION = "3.3.3-live"
 EW.API_CONTRACT = "ExchangeWalkerLive/1.0"
 EW.MIN_F2CE_VERSION = "3.2.5"
 EW.enabled = false
@@ -823,13 +823,21 @@ local function make_plan(exchange_data, production_data, room_identity, target_p
   end)
   local actions = {}
   for _, row in ipairs(rows) do
-    if row.target_min ~= row.old_min then
-      actions[#actions + 1] = { kind = "min", commodity = row.commodity,
-        value = row.target_min, planet = target_planet }
+    local min_changed = row.target_min ~= row.old_min
+    local max_changed = row.target_max ~= row.old_max
+    local function add_limit(kind, value)
+      actions[#actions + 1] = { kind = kind, commodity = row.commodity,
+        value = value, planet = target_planet }
     end
-    if row.target_max ~= row.old_max then
-      actions[#actions + 1] = { kind = "max", commodity = row.commodity,
-        value = row.target_max, planet = target_planet }
+    -- The server validates each mutation against the still-live opposite
+    -- bound. Raise max before a higher min; lower min before a lower max.
+    -- In every non-conflicting case prefer max first for a stable convention.
+    if min_changed and max_changed and row.target_max < row.old_min then
+      add_limit("min", row.target_min)
+      add_limit("max", row.target_max)
+    else
+      if max_changed then add_limit("max", row.target_max) end
+      if min_changed then add_limit("min", row.target_min) end
     end
     if row.target_spread ~= row.old_spread then
       actions[#actions + 1] = { kind = "spread", commodity = row.commodity,

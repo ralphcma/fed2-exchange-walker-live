@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-2.0-only
 -- Copyright (C) 2026 Exchange Walker Live contributors
--- Offline behavioral checks for Exchange Walker Live 3.3.2.
+-- Offline behavioral checks for Exchange Walker Live 3.3.3.
 -- Run shared mode: lua5.1 exchange-walker-live-test.lua f2ce-api.lua exchange-walker-live.lua fed2_module_api.lua
 -- Run standalone mode by passing standalone-f2ce-api.lua as argument five.
 
@@ -232,7 +232,7 @@ dofile(adapter_source)
 dofile(runtime_source)
 local EW = ExchangeWalkerLive
 
-check(EW.VERSION == "3.3.2-live", "version must be 3.3.2-live")
+check(EW.VERSION == "3.3.3-live", "version must be 3.3.3-live")
 check(EW.enabled == false, "fresh load must default OFF")
 check(#sent == 0, "loading must send no gameplay command")
 check(type(EW.public) == "table" and EW.public.contract == "ExchangeWalkerLive/1.0",
@@ -356,7 +356,8 @@ local action_start = #sent + 1
 local apply_history_start = #EW.ui.history + 1
 check(EW.apply() == true and EW.applying == true, "explicit apply must start")
 check(#sent == action_start, "apply must initially send exactly one mutation")
-check(sent[action_start] == "set stockpile min 10000 Gold", "reserve minimum command must be first")
+check(sent[action_start] == "set stockpile max 20000 Gold",
+  "maximum must be raised before a minimum that exceeds the old maximum")
 
 local function confirmation_callback(kind)
   for _, trigger in pairs(triggers) do
@@ -378,8 +379,8 @@ while EW.applying do
 end
 
 local expected_actions = {
-  "set stockpile min 10000 Gold", "set stockpile max 20000 Gold", "set spread 40 Gold",
-  "set stockpile min 500 Alloys", "set stockpile max 1500 Alloys", "set spread 40 Alloys",
+  "set stockpile max 20000 Gold", "set stockpile min 10000 Gold", "set spread 40 Gold",
+  "set stockpile max 1500 Alloys", "set stockpile min 500 Alloys", "set spread 40 Alloys",
   "set stockpile min 0 Meats", "set stockpile max 0 Meats", "set spread 6 Meats",
 }
 for index, expected in ipairs(expected_actions) do
@@ -452,7 +453,7 @@ check(sent[remote_start + 1] == "display production all Tempest",
   "remote preview must request all target production explicitly")
 check(EW.plan and EW.plan.remote == true and EW.plan.planet == "Tempest",
   "remote capture must create a planet-bound plan independent of current room")
-check(EW.apply() == true and sent[remote_start + 2] == "set stockpile min 10000 Gold Tempest",
+check(EW.apply() == true and sent[remote_start + 2] == "set stockpile max 20000 Gold Tempest",
   "remote apply must append the exact reviewed planet to every mutation")
 local remote_pending = EW.pending_confirmation
 matches = { "confirmation", remote_pending.action.commodity, "Wrong Planet", tostring(remote_pending.value) }
@@ -467,7 +468,7 @@ check(EW.autoOn() == true and EW.scheduler.enabled and EW.scheduler.running,
 check(sent[#sent] == "display exchange Tempest",
   "scheduled cycle must begin with exact remote exchange capture")
 run_next_timer()
-check(sent[#sent] == "set stockpile min 10000 Gold Tempest",
+check(sent[#sent] == "set stockpile max 20000 Gold Tempest",
   "complete scheduled capture must begin its reviewed remote apply")
 while EW.applying do
   local scheduled_pending = EW.pending_confirmation

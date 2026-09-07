@@ -133,7 +133,7 @@ display registration, capabilities, and event subscription.
 
 1. Install/enable Muxlet and F2CE-Tools 3.2.5.
 2. Optionally install `fed2-module-api-1.2.4.mpackage` for shared integration.
-3. Install `exchange-walker-live-3.3.2-live.mpackage`.
+3. Install `exchange-walker-live-3.3.3-live.mpackage`.
 4. Confirm Exchange Walker reports OFF.
 5. Run `ew api`. The display safely uses an empty pane at 15+ when available;
    otherwise place **Exchange Walker** from Muxlet Content Library.

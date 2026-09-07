@@ -1,4 +1,4 @@
-# Exchange Walker Live 3.3.2 Test Results
+# Exchange Walker Live 3.3.3 Test Results
 
 Date: 2026-09-07
 
@@ -14,12 +14,12 @@ Date: 2026-09-07
 
 ## Exact package gates
 
-Artifact: `dist/exchange-walker-live-3.3.2-live.mpackage`
+Artifact: `dist/exchange-walker-live-3.3.3-live.mpackage`
 
 SHA-256:
 
 ```text
-6e54de5c6b5df4e7796580f326950b8aca8361df7cd96e62a40b960e34406072
+d6fe09c825dea4c28a8c0881759145883edbbc3421f58064b565bb494a49bce2
 ```
 
 - Required members: 8/8; unexpected members: 0.
@@ -72,7 +72,7 @@ Its source and exact-package API suites both passed.
 
 ## Live acceptance status
 
-No gameplay connection or command was used for this 3.3.2 build. A local Mudlet
+No gameplay connection or command was used for this 3.3.3 build. A local Mudlet
 acceptance should install the exact Exchange Walker artifact above, optionally
 with the shared API, begin OFF, verify safe Mux placement, preview one known owned remote planet,
 compare the complete plan with live output, and only then explicitly Apply.
