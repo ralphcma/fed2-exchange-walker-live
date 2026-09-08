@@ -2,6 +2,14 @@
 
 Date: 2026-09-07
 
+## Repository publication recheck
+
+Runtime remains 3.3.3-live. Source and the existing exact 3.3.3-live package
+were rechecked with Fed2 Module API 1.2.9 and without the shared API:
+148 passed, 0 failed in each mode. This is offline compatibility evidence,
+not a new live acceptance run. Runtime/package files were not changed for
+publication; the previously recorded artifact hash remains applicable.
+
 ## Source gates
 
 - Lua 5.1 syntax: `f2ce-api.lua`, `exchange-walker-live.lua`, and the offline
